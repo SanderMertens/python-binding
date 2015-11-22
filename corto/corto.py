@@ -8,7 +8,19 @@ CORTO_HOME = os.environ.get('CORTO_HOME', '/usr/local/')
 libcorto = ctypes.CDLL("%s/lib/corto/0.2/libraries/libcorto.so" % (CORTO_HOME))
 
 
-ROOT_O = ctypes.c_void_p.in_dll(libcorto, "root_o")
+class Corto:
+
+    def __init__(self, ptr):
+        self._ptr = ptr
+
+    def parent(self):
+        return libcorto.corto_parentof(self._ptr)
+
+    def name(self):
+        return libcorto.corto_parentof(self._ptr)
+
+
+ROOT_O = Corto(ctypes.c_void_p.in_dll(libcorto, "root_o"))
 
 
 def start():
@@ -20,7 +32,7 @@ def stop():
 
 
 def resolve(scope, name):
-    return libcorto.corto_resolve(scope, name)
+    return Corto(libcorto.corto_resolve(scope, name))
 
 
 def parentof(o):

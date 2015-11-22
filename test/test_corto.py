@@ -9,15 +9,15 @@ class Test(unittest.TestCase):
     def tearDown(self):
         corto.stop()
 
-    def test_start_stop(self):
-        pass
+    # def test_start_stop(self):
+    #     pass
 
     # def test_root_o(self):
     #     self.assertIsNotNone(corto.ROOT_O)
 
-    # def test_name_of_root(self):
-    #     name = corto.nameof(corto.ROOT_O)
-    #     self.assertEquals(name, 0)
+    def test_name_of_root(self):
+        name = corto.ROOT_O.name()
+        self.assertEquals(name, 0)
 
     # def test_resolve(self):
     #     """
