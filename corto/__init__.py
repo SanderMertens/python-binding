@@ -1,1 +1,1 @@
-from corto import *
+from .corto import *
