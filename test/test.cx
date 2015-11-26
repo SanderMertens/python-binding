@@ -1,0 +1,6 @@
+#package ::test
+
+test::Suite Project::
+    int16 testScript(string testCase) method
+    void tc_root_o()
+    void tc_startStop()
