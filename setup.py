@@ -1,14 +1,50 @@
-from setuptools import setup
+import os
+
+from distutils.core import setup
+from distutils.core import Extension
+
+
+def get_corto_include_dirs():
+    return [
+        '/usr/local/include/corto/0.2/packages/corto/lang',
+        '/usr/local/include/corto/0.2/packages',
+    ]
+
+
+def get_corto_libraries():
+    return [
+        'corto'
+    ]
+
+
+def get_corto_library_dirs():
+    return [
+        '/usr/local/lib/corto/0.2/libraries',
+    ]
+
+
+def get_sources():
+    return ["src/" + f for f in os.listdir("./src")]
+
+
+corto_module = Extension(
+    'cortopy',
+    include_dirs=get_corto_include_dirs(),
+    libraries=get_corto_libraries(),
+    library_dirs=get_corto_library_dirs(),
+    sources=get_sources(),
+)
+
 
 setup(
-    name='corto',
+    name='cortopy',
     version='0.1',
-    packages=['corto'],
-    license='MIT',
-    description='Python binding for Corto',
-    url='https://github.com/jleeothon/shortpython',
+    ext_modules=[corto_module],
     author='Johnny Lee',
     author_email='jleeothon@gmail.com',
+    license='MIT',
+    description='Python binding for Corto',
+    url='https://github.com/cortoproject/python-binding',
     classifiers=[
         'Environment :: Console',
         'Environment :: Web Environment',
@@ -22,6 +58,4 @@ setup(
         'Programming Language :: Python :: 3.5',
         'Topic :: Internet',
     ],
-    install_requires=[],
-    tests_require=[],
 )
