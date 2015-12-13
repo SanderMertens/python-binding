@@ -4,12 +4,15 @@ Development guide
 Setting up
 ----------
 
-To set up the environment, use pyvenv.
+Have Python 3.4.
+
+Have corto installed as directed in www.corto.io.
+
+Install pyvenv if you don't have it. I had trouble in Cloud 9's Ubuntu, so I use https://gist.github.com/jleeothon/ccd798591c2cff1dc555.
 
 ```
 pyvenv env
 ```
-
 
 Building and testing
 --------------------
@@ -35,7 +38,7 @@ python setup.py sdist
 If cortopy has been already installed, uninstall it:
 
 ```
-pip uninstall cortopy
+pip uninstall --yes cortopy
 ```
 
 Install the package to the virtual environment
