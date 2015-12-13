@@ -6,7 +6,7 @@
 static PyObject *
 cortopy_root(PyObject *self, PyObject *args)
 {
-    PyObject* root = Py_BuildValue("i", root_o);
+    PyObject* root = Py_BuildValue("K", (unsigned long long int)root_o);
     return root;
 }
 
@@ -44,26 +44,27 @@ cortopy_resolve(PyObject* self, PyObject* args)
         corto_dealloc(s);
         return NULL;
     }
-    return Py_BuildValue("i", o);
+    return Py_BuildValue("K", (unsigned long long int)o);
 }
 
 
 static PyObject *
 cortopy_nameof(PyObject* self, PyObject* args)
 {
-    int p;
-    if (!PyArg_ParseTuple(args, "i", &p)) {
+    unsigned long long int p;
+    if (!PyArg_ParseTuple(args, "K", &p)) {
         return NULL;
     }
-    printf("lang is in %d\n", p);
-    printf("size of int: %d, size of pointer: %d\n", sizeof(int), sizeof(void*));
-    printf("as a pointer: %d\n", (int)(void*)p);
+    printf("lang is in %llu\n", p);
+    printf("size of int: %lu, size of pointer: %lu\n", sizeof(int), sizeof(void*));
+    printf("as a pointer: %llu\n", (unsigned long long int)(void*)p);
     corto_string name = corto_nameof((corto_object)p);
-    // if (!name) {
-    //     PyErr_SetString(PyExc_RuntimeError, "could not find object");
-    //     return NULL;
-    // }
-    return Py_BuildValue("s", "ye");
+    printf("name is %s\n", name);
+    if (!name) {
+        PyErr_SetString(PyExc_RuntimeError, "could not find object");
+        return NULL;
+    }
+    return Py_BuildValue("s", name);
 }
 
 
