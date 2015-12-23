@@ -344,8 +344,6 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
         parent = corto_resolve(NULL, parentName);
     } else {
         if (corto_claim(root_o)) {
-            printf(corto_lasterr);
-            printf("\n")
             PyErr_SetString(cortopy_CortoError, corto_lasterr());
             goto error_claimRoot;
         }

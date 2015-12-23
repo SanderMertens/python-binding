@@ -5,23 +5,43 @@ from distutils.core import setup
 from distutils.core import Extension
 
 
+# HAS_CORTO_INSTALLATION = os.path.exists('/usr/local/include/corto/0.2/packages/corto/lang')
+HAS_CORTO_INSTALLATION = False
+CORTO_HOME = '/usr/local' if HAS_CORTO_INSTALLATION else os.path.join(os.getenv('HOME'), '.corto')
+
+
 def get_corto_include_dirs():
-    return [
-        '/usr/local/include/corto/0.2/packages/corto/lang',
-        '/usr/local/include/corto/0.2/packages',
+    include_dirs = [
+        'include/corto/0.2/packages/corto/lang',
+        'include/corto/0.2/packages',
     ]
+    include_dirs = [
+        os.path.join(CORTO_HOME, include_dir)
+        for include_dir in include_dirs
+    ]
+    for include_dir in include_dirs:
+        assert os.path.exists(include_dir)
+    return include_dirs
 
 
 def get_corto_libraries():
-    return [
+    libraries = [
         'corto',
     ]
+    return libraries
 
 
 def get_corto_library_dirs():
-    return [
-        '/usr/local/lib/corto/0.2/libraries',
+    library_dirs = [
+        'lib/corto/0.2/libraries',
     ]
+    library_dirs = [
+        os.path.join(CORTO_HOME, library_dir)
+        for library_dir in library_dirs
+    ]
+    for library_dir in library_dirs:
+        assert os.path.exists(library_dir)
+    return library_dirs
 
 
 def get_sources():
