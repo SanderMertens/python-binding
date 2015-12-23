@@ -1,3 +1,4 @@
+import glob
 import os
 
 from distutils.core import setup
@@ -13,7 +14,7 @@ def get_corto_include_dirs():
 
 def get_corto_libraries():
     return [
-        'corto'
+        'corto',
     ]
 
 
@@ -24,7 +25,7 @@ def get_corto_library_dirs():
 
 
 def get_sources():
-    return ["src/" + f for f in os.listdir("./src")]
+    return glob.glob("src/*.c")
 
 
 corto_module = Extension(
