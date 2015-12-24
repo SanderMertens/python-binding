@@ -1,13 +1,26 @@
-language: c
+language: python
+python:
+  - "3.3"
+  - "3.4"
+  - "3.5"
 
 sudo: false
 
+addons:
+  apt:
+    sources:
+      - deadsnakes
+      - ubuntu-toolchain-r-test
+    packages:
+      - gcc-4.8
+      - g++-4.8
+
 install:
   - cd ..
-  - mkdir projects
-  - mv python-binding projects/python-binding
-  - cd projects
-  - git clone https://github.com/cortoproject/corto.git
+  - mkdir cortoproject
+  - mv python-binding cortoproject/python-binding
+  - cd cortoproject
+  - git clone https://github.com/cortoproject/corto.git && cd corto && git checkout 3300557d28c2c9239729a2f266f99c0939da61eb && cd ..
   - git clone https://github.com/cortoproject/c-binding.git
   - git clone https://github.com/cortoproject/xml.git
   - git clone https://github.com/cortoproject/corto-language.git
@@ -20,7 +33,11 @@ install:
   - source corto/configure
   - rake
   - cd python-binding
+  - pip install -r requirements-dev.txt
+  - export LD_LIBRARY_PATH="$HOME/.corto/lib/corto/0.2/libraries:$LD_LIBRARY_PATH"
 
 script:
-  - corto build test
-  - corto test
+  - python setup.py build
+  - python setup.py sdist
+  - pip install dist/cortopy-0.1.tar.gz
+  - nosetests -v
