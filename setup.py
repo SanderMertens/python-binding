@@ -5,7 +5,6 @@ from distutils.core import setup
 from distutils.core import Extension
 
 
-# HAS_CORTO_INSTALLATION = os.path.exists('/usr/local/include/corto/0.2/packages/corto/lang')
 HAS_CORTO_INSTALLATION = False
 CORTO_HOME = '/usr/local' if HAS_CORTO_INSTALLATION else os.path.join(os.getenv('HOME'), '.corto')
 
