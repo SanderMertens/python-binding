@@ -10,8 +10,8 @@ def test_root():
     assert cortopy.root() is not None
 
 def test_declare_child():
-    # pass
-    a = cortopy.declare_child(None, "testDeclareChildA", "int8");
+    pass
+    # a = cortopy.declare_child(None, "testDeclareChildA", "int8");
     # b = cortopy.resolve("::testDeclareChildA")
     # assert b is not None
 
