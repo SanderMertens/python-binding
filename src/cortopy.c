@@ -1,7 +1,7 @@
 #include "Python.h"
 #include "structmember.h"
 
-#include "corto.h"
+#include "corto/corto.h"
 
 
 static PyObject* cortopy_CortoError;

@@ -1,0 +1,36 @@
+require 'rake/clean'
+
+SupportedPythonVersions = %w(3.3 3.4 3.5)
+
+def check_python_version_supported?
+  python_version = `python --version`
+  is_supported = SupportedPythonVersions.map do |v|
+    "Python #{v}."
+  end.any? do |v|
+    python_version.start_with? v
+  end
+  unless is_supported
+    raise "Unsupported Python version: #{python_version}"
+  end
+end
+
+task :build do
+  check_python_version_supported?
+  sh "python setup.py build"
+  sh "python setup.py sdist"
+  begin
+    sh "pip uninstall --yes cortopy"
+  rescue
+  end
+  sh "pip install dist/cortopy-0.1.tar.gz"
+end
+
+task :test do
+  sh "nosetests -v"
+end
+
+
+task :default do
+  Rake::Task["build"].invoke
+  Rake::Task["test"].invoke
+end

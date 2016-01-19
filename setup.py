@@ -10,16 +10,9 @@ CORTO_HOME = '/usr/local' if HAS_CORTO_INSTALLATION else os.path.join(os.getenv(
 
 
 def get_corto_include_dirs():
-    include_dirs = [
-        'include/corto/0.2/packages/corto/lang',
-        'include/corto/0.2/packages',
-    ]
-    include_dirs = [
-        os.path.join(CORTO_HOME, include_dir)
-        for include_dir in include_dirs
-    ]
+    include_dirs = glob.glob(os.path.join(CORTO_HOME, 'include/corto/0.2/packages'))
     for include_dir in include_dirs:
-        assert os.path.exists(include_dir)
+        assert os.path.exists(include_dir), '"{}" doesn\'t exist'.format(include_dir)
     return include_dirs
 
 
@@ -27,19 +20,21 @@ def get_corto_libraries():
     libraries = [
         'corto',
     ]
+    for library in libraries:
+        search_locations = [
+            os.path.join(d, "lib" + library + ".so")
+            for d in get_corto_library_dirs()
+        ]
+        assert any(
+            map(os.path.exists, search_locations)
+        ), "did not find {}, tried {}".format(library, search_locations)
     return libraries
 
 
 def get_corto_library_dirs():
-    library_dirs = [
-        'lib/corto/0.2/libraries',
-    ]
-    library_dirs = [
-        os.path.join(CORTO_HOME, library_dir)
-        for library_dir in library_dirs
-    ]
+    library_dirs = glob.glob(os.path.join(CORTO_HOME, "lib/corto/0.2/packages/*"))
     for library_dir in library_dirs:
-        assert os.path.exists(library_dir)
+        assert os.path.exists(library_dir), '"{}" doesn\'t exist'.format(library_dir)
     return library_dirs
 
 
