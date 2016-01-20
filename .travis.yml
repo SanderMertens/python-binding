@@ -20,7 +20,7 @@ install:
   - mkdir cortoproject
   - mv python-binding cortoproject/python-binding
   - cd cortoproject
-  - git clone https://github.com/cortoproject/corto.git && cd corto && git checkout 3300557d28c2c9239729a2f266f99c0939da61eb && cd ..
+  - git clone https://github.com/cortoproject/corto.git
   - git clone https://github.com/cortoproject/c-binding.git
   - git clone https://github.com/cortoproject/xml.git
   - git clone https://github.com/cortoproject/corto-language.git
