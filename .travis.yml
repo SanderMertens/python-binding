@@ -34,7 +34,11 @@ install:
   - rake
   - cd python-binding
   - pip install -r requirements-dev.txt
-  - export LD_LIBRARY_PATH="$HOME/.corto/lib/corto/0.2/packages:$LD_LIBRARY_PATH"
 
 script:
+  - echo "-----------------"
+  - echo " ld library path"
+  - echo "$LD_LIBRARY_PATH"
+  - echo "-----------------"
+  - export LD_LIBRARY_PATH="$HOME/.corto/lib/corto/0.2/packages"
   - rake
