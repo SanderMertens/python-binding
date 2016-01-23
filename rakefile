@@ -1,6 +1,6 @@
 require 'rake/clean'
 
-SupportedPythonVersions = %w(3.3 3.4 3.5)
+SupportedPythonVersions = %w(3.4 3.5)
 
 def check_python_version_supported?
   python_version = `python --version`
