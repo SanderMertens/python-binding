@@ -86,22 +86,33 @@ static PyObject *
 cortopy_setval(cortopy_object* self, PyObject* val);
 
 
+/*
+ * Takes a cortopy.object, a type, or a str
+ */
 static int
 cortopy_convertToObjectExt(PyObject* o, void* p, const char* msg)
 {
     corto_object c = NULL;
+    const char* name = NULL;
     if (PyObject_IsInstance(o, (PyObject*)&cortopy_objectType)) {
         c = ((cortopy_object*)o)->this;
         corto_claim(c);
+    } else if (PyType_Check(o) && PyType_IsSubtype((PyTypeObject*)o, &cortopy_objectType)) {
+        // TODO better way to get the underlying Corto type
+        // TODO maybe we need a metaclass for cortopy types
+        name = ((PyTypeObject*)o)->tp_name;
+        printf("got type name %s\n", name); // TODO remove
+        c = corto_resolve(NULL, (corto_string)name);
     } else if (PyObject_IsInstance(o, (PyObject*)&PyUnicode_Type)) {
-        char* name = PyUnicode_AsUTF8(o);
-        c = corto_resolve(NULL, name);
-        if (c == NULL) {
-            PyErr_Format(PyExc_ValueError, "cannot find %s", name);
-            goto error;
-        }
+        name = PyUnicode_AsUTF8(o);
+        c = corto_resolve(NULL, (corto_string)name);
+        printf("got str name %s\n", name); // TODO remove
     } else {
         PyErr_Format(PyExc_TypeError, msg, o->ob_type->tp_name);
+        goto error;
+    }
+    if (c == NULL) {
+        PyErr_Format(PyExc_ValueError, "cannot find %s", name);
         goto error;
     }
     *(corto_object*)p = c;
@@ -125,6 +136,7 @@ static int
 cortopy_convertToObjectOrRoot(PyObject* o, void* p)
 {
     if (o == Py_None) {
+        puts("got root");
         corto_claim(root_o);
         *(corto_object*)p = root_o;
     } else {
@@ -137,9 +149,6 @@ cortopy_convertToObjectOrRoot(PyObject* o, void* p)
 error:
     return 0;
 }
-
-
-
 
 
 /*
@@ -651,9 +660,7 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
     static char* kwds[] = {"parent", "name", "type", "value", NULL};
     static char* argFmt = "O&sO&|O:declare_child";
     corto_object parent;
-    // char* parentName = NULL;
     char* name = NULL;
-    // char* typeName = NULL;
     corto_object type = NULL;
     PyObject* value = NULL;
     if (!PyArg_ParseTupleAndKeywords(
@@ -665,18 +672,20 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
     ) {
         goto errorParseTupleAndKeywords;
     }
-
+    puts("1");
 
     corto_object o = corto_declareChild(parent, name, type);
     if (!o) {
         PyErr_SetString(cortopy_CortoError, corto_lasterr());
         goto errorDeclareChild;
     }
+    puts("2");
 
     PyTypeObject* cpType = cortopy_tryBuildType(type);
     if (cpType == NULL) {
         goto errorTryBuildType;
     }
+    puts("3");
     PyObject* cpObj;
     PyObject* newargs = Py_BuildValue("(s s s)", corto_fullpath(NULL, parent), name, corto_fullpath(NULL, type));
     PyObject* newkwargs = Py_BuildValue("{}");
@@ -687,11 +696,11 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
     if (cpType->tp_init(cpObj, newargs, newkwargs)) {
         goto errorInit;
     }
+    puts("4");
 
     corto_release(type);
     corto_release(parent);
     return cpObj;
-
 errorInit:
 errorNew:
 errorTryBuildType:
@@ -723,11 +732,15 @@ cortopy_setvalInteger(cortopy_object* self, PyObject* val, corto_type type)
 {
     int isInteger = PyObject_IsInstance(val, (PyObject *)&PyLong_Type);
     if (isInteger == 1) {
-        // TODO determine right variable
-        printf("%zu %zu %zu %zu\n", sizeof(short), sizeof(int), sizeof(long int), sizeof(long long int));
-        // if (PyArg_ParseTuple(val, )) {
-        //     goto error;
-        // }
+        int overflow = 0;
+        signed long long int cVal = PyLong_AsLongLongAndOverflow(val, &overflow);
+        signed long long int max = corto_int(type)->max;
+        signed long long int min = corto_int(type)->min;
+        if (overflow || cVal > max || cVal < min) {
+            PyErr_Format(PyExc_ValueError, "value must be between %lld and %lld, have %S", min, max, val);
+            goto error;
+        }
+        *(signed long long int*)(self->this) = cVal;
     } else if (isInteger == 0) {
         PyErr_Format(PyExc_TypeError, "setval argument 1 must be int not %s", val->ob_type->tp_name);
         goto error;
@@ -759,7 +772,6 @@ static PyObject *
 cortopy_setval(cortopy_object* self, PyObject* val)
 {
     corto_type type = corto_typeof(self->this);
-    PyTypeObject* cpType = ((PyObject*)self)->ob_type;
     PyObject* result = NULL;
     switch (type->kind) {
     case CORTO_PRIMITIVE:
@@ -864,6 +876,7 @@ cortopy_buildType(corto_type type)
 {
     PyTypeObject* baseType = &cortopy_objectType;
     // if (type->kind == CORTO_COMPOSITE) {
+
     //     PyTypeObject* baseType = cortopy_tryBuildType((corto_type)(corto_interface(type)->base));
     //     if (baseType == NULL) {
     //         goto error;
@@ -885,7 +898,7 @@ cortopy_buildType(corto_type type)
     // TODO what to do with types that are not typical valid identifiers
     // TODO revise proper value https://docs.python.org/2/c-api/typeobj.html?highlight=tp_name#c.PyTypeObject.tp_name
     corto_string tp_name;
-    if (corto_asprintf(&tp_name, "cortopy.store.%s", typeFullpath) <= 0) {
+    if (corto_asprintf(&tp_name, "%s", typeFullpath) <= 0) {
         PyErr_SetString(cortopy_CortoError, corto_lasterr());
         goto error;
     }
@@ -929,6 +942,7 @@ cortopy_tryBuildType(corto_type type)
     }
 
     if (PyDict_SetItemString(cortopy_typesCache, typeFullpath, Py_None)) {
+        puts(" ERROR TRY BUID TYPE SET ITEM STRING");
         goto errorSetCacheNone;
     }
     pyType = (PyObject*)cortopy_buildType(type); // TODO check if serializeType increased ref
@@ -1049,8 +1063,6 @@ cortopy_getTypesCache(PyObject* self, PyObject* args)
 
 
 static PyMethodDef cortopyMethods[] = {
-    // {"start", cortopy_start, METH_NOARGS, "Start a corto shell"},
-    // {"stop", cortopy_stop, METH_NOARGS, "Start a corto shell"},
     {"resolve", cortopy_resolve, METH_VARARGS, "Resolves and constructs and object and returns it"},
     {"nameof", cortopy_nameof, METH_VARARGS, "Returns a name given an address"},
     {"declare_child", (PyCFunction)cortopy_declareChild, METH_VARARGS|METH_KEYWORDS, CORTOPY_DECLARE_CHILD_DOC},
