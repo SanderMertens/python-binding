@@ -33,10 +33,6 @@ cortopy_objectInit(cortopy_object* self, PyObject* args, PyObject* kwargs);
 static PyObject*
 cortopy_objectUpdate(cortopy_object* self, PyObject* args, PyObject* kwargs);
 
-
-static PyObject*
-cortopy_deserialize_boolean(corto_object cortoObj);
-
 static PyObject *
 cortopy_deserialize_integer(corto_object cortoObj);
 
@@ -136,7 +132,6 @@ static int
 cortopy_convertToObjectOrRoot(PyObject* o, void* p)
 {
     if (o == Py_None) {
-        puts("got root");
         corto_claim(root_o);
         *(corto_object*)p = root_o;
     } else {
@@ -408,153 +403,6 @@ PyTypeObject cortopy_intType = {
 };
 
 
-typedef struct {
-    cortopy_object self;
-    PyObject* value; /* Py_True or Py_False */
-} cortopy_bool;
-
-PyTypeObject cortopy_boolType;
-
-
-/*
- * For now, declares and defines a bool object.
- * cortopy.bool("/", "myBool", True)
- * We may solely declare and define objects in different steps in the future.
- */
-static int
-cortopy_boolInit(cortopy_bool* self, PyObject* args, PyObject* kwargs)
-{
-    static char *kwds[] = {"parent", "name", "x", 0};
-    corto_string parentName = NULL;
-    corto_string name = NULL;
-    int x = FALSE;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "zz|p:bool", kwds, &parentName, &name, &x)) {
-        goto errorParseTupleAndKeywords;
-    }
-
-    corto_object this = NULL;
-    if (cortopy_objectInitExt((cortopy_object*)self, parentName, name, corto_type(corto_bool_o), &this) || this == NULL) {
-        goto errorInitExt;
-    }
-
-    self->value = 0;
-
-    if (x) {
-        Py_INCREF(Py_True);
-        self->value = Py_True;
-    } else {
-        Py_INCREF(Py_False);
-        self->value = Py_False;
-    }
-
-    *(corto_bool*)this = x ? TRUE : FALSE;
-    if (corto_define(this)) {
-        PyErr_SetString(cortopy_CortoError, corto_lasterr());
-        goto errorCortoDefine;
-    }
-
-    return 0;
-errorCortoDefine:
-errorInitExt:
-errorParseTupleAndKeywords:
-    return -1;
-}
-
-
-static PyObject*
-cortopy_deserialize_boolean(corto_object cortoObj)
-{
-    corto_type type = corto_typeof(cortoObj);
-    corto_assert(type->kind == CORTO_PRIMITIVE && corto_primitive(type)->kind == CORTO_BOOLEAN, "not an instance of a boolean type");
-
-    corto_string parentFullpath = corto_fullpath(NULL, corto_parentof(cortoObj));
-    corto_string name = corto_nameof(cortoObj);
-    PyObject* newArgs = NULL;
-    if (corto_checkState(cortoObj, CORTO_DEFINED)) {
-        newArgs = Py_BuildValue("(s s p)", parentFullpath, name, *(corto_bool*)cortoObj);
-    } else {
-        newArgs = Py_BuildValue("(s s)", parentFullpath, name);
-    }
-    if (newArgs == NULL) {
-        goto errorNewArgs;
-    }
-    PyObject* newKwargs = PyDict_New();
-    if (newKwargs == NULL) {
-        goto errorNewDict;
-    }
-    PyObject* pyObj = cortopy_boolType.tp_new(&cortopy_boolType, newArgs, newKwargs);
-    if (pyObj == NULL) {
-        goto errorNew;
-    }
-    if (cortopy_boolType.tp_init(pyObj, newArgs, newKwargs)) {
-        goto errorInit;
-    }
-    Py_XDECREF(newKwargs);
-    Py_XDECREF(newArgs);
-    return pyObj;
-errorInit:
-errorNew:
-    Py_XDECREF(newKwargs);
-errorNewDict:
-    Py_XDECREF(newArgs);
-errorNewArgs:
-    return NULL;
-}
-
-
-PyMethodDef cortopy_boolMethods[] = {
-    {NULL}
-};
-
-// TODO maybe change the value to T_BOOL
-PyMemberDef cortopy_boolMembers[] = {
-    {"value", T_OBJECT, offsetof(cortopy_bool, value), READONLY, "True or False"},
-    {NULL}
-};
-
-
-PyTypeObject cortopy_boolType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    "cortopy.bool",             /* tp_name */
-    sizeof(cortopy_bool),       /* tp_basicsize */
-    0,                         /* tp_itemsize */
-    0,                         /* tp_dealloc */
-    0,                         /* tp_print */
-    0,                         /* tp_getattr */
-    0,                         /* tp_setattr */
-    0,                         /* tp_reserved */
-    0,                         /* tp_repr */
-    0,                         /* tp_as_number */
-    0,                         /* tp_as_sequence */
-    0,                         /* tp_as_mapping */
-    0,                         /*  tp_hash  */
-    0,                         /* tp_call */
-    0,                         /* tp_str */
-    0,                         /* tp_getattro */
-    0,                         /* tp_setattro */
-    0,                         /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_FINALIZE,/* tp_flags */
-    "bool type for corto objects", /* tp_doc */
-    0,                         /* tp_traverse */
-    0,                         /* tp_clear */
-    0,                         /* tp_richcompare */
-    0,                         /* tp_weaklistoffset */
-    0,                         /* tp_iter */
-    0,                         /* tp_iternext */
-    cortopy_boolMethods,                         /* tp_methods */
-    cortopy_boolMembers,                         /* tp_members */
-    0,                         /* tp_getset */
-    0,                         /* tp_base */
-    0,                         /* tp_dict */
-    0,                         /* tp_descr_get */
-    0,                         /* tp_descr_set */
-    0,                         /* tp_dictoffset */
-    (initproc)&cortopy_boolInit,         /* tp_init */
-    0,                         /* tp_alloc */
-};
-
-
 static PyObject *
 cortopy_deserialize_integer(corto_object cortoObj)
 {
@@ -586,9 +434,6 @@ cortopy_deserialize_primitive(corto_object cortoObj)
     switch (corto_primitive(corto_typeof(cortoObj))->kind) {
     case CORTO_INTEGER:
         pyObj = cortopy_deserialize_integer(cortoObj);
-        break;
-    case CORTO_BOOLEAN:
-        pyObj = cortopy_deserialize_boolean(cortoObj);
         break;
     default:
         PyErr_SetString(PyExc_RuntimeError, "primitive type not supported");
@@ -672,7 +517,6 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
     ) {
         goto errorParseTupleAndKeywords;
     }
-    puts("1");
 
     corto_object o = corto_declareChild(parent, name, type);
     if (!o) {
@@ -682,13 +526,18 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
     puts("2");
 
     PyTypeObject* cpType = cortopy_tryBuildType(type);
+    printf("in declare child is none? %d\n", (void*)cpType == Py_None);
     if (cpType == NULL) {
         goto errorTryBuildType;
+    } else if ((PyObject*)cpType == Py_None) {
+        PyErr_Format(PyExc_RuntimeError, "type %s was cached as None", corto_fullpath(NULL, type));
+        goto errorTryBuildType;
     }
-    puts("3");
     PyObject* cpObj;
     PyObject* newargs = Py_BuildValue("(s s s)", corto_fullpath(NULL, parent), name, corto_fullpath(NULL, type));
     PyObject* newkwargs = Py_BuildValue("{}");
+    printf("is generic new? %d\n", cpType->tp_new == PyType_GenericNew);
+    printf(" (%s) cpType->tp_new: %p\n", cpType->tp_name, cpType->tp_new);
     cpObj = cpType->tp_new(cpType, newargs, newkwargs);
     if (cpObj == NULL) {
         goto errorNew;
@@ -696,7 +545,6 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
     if (cpType->tp_init(cpObj, newargs, newkwargs)) {
         goto errorInit;
     }
-    puts("4");
 
     corto_release(type);
     corto_release(parent);
@@ -860,6 +708,8 @@ cortopy_typeSerializer(
 static size_t
 cortopy_sizeForType(corto_type type)
 {
+    // printf("size of cortopy object: %lu\n", sizeof(cortopy_object));
+    // printf("size of type size: %llu\n", (long long unsigned)type->size);
     return sizeof(cortopy_object) + type->size; // TODO get the size of the Corto type
 }
 
@@ -882,8 +732,9 @@ cortopy_buildType(corto_type type)
     //         goto error;
     //     }
     // }
-
+    printf("############ begin build type %s\n", corto_fullpath(NULL, type));
     corto_string typeFullpath = corto_fullpath(NULL, type);
+    printf("building %s\n", typeFullpath);
     PyObject* pyTypeFullpath = PyUnicode_FromString(typeFullpath);
     if (pyTypeFullpath == NULL) {
         goto error;
@@ -894,11 +745,12 @@ cortopy_buildType(corto_type type)
 
     /* Manually do PyVarObject_HEAD_INIT */
     cortopyType->ob_base = (PyVarObject){PyObject_HEAD_INIT(&PyType_Type) 0};
+    Py_INCREF(cortopyType); // TODO maybe don't need this one
 
     // TODO what to do with types that are not typical valid identifiers
     // TODO revise proper value https://docs.python.org/2/c-api/typeobj.html?highlight=tp_name#c.PyTypeObject.tp_name
-    corto_string tp_name;
-    if (corto_asprintf(&tp_name, "%s", typeFullpath) <= 0) {
+    corto_string tp_name = NULL;
+    if (corto_asprintf(&tp_name, "%s", corto_nameof(type)) <= 0) {
         PyErr_SetString(cortopy_CortoError, corto_lasterr());
         goto error;
     }
@@ -907,7 +759,7 @@ cortopy_buildType(corto_type type)
     // TODO maybe need FINALIZE flag for deallocating name
     cortopyType->tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE;
     cortopyType->tp_repr = cortopy_typeRepr;
-    cortopyType->tp_new = PyType_GenericNew;
+    cortopyType->tp_new = 0;
     cortopyType->tp_base = baseType;
 
     struct corto_serializer_s s = cortopy_typeSerializer(CORTO_PRIVATE | CORTO_LOCAL, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER);
@@ -918,6 +770,9 @@ cortopy_buildType(corto_type type)
         goto error;
     }
     Py_INCREF(cortopyType);
+    
+    printf("is generic new after ready? (%s) %d\n", tp_name, cortopyType->tp_new == PyType_GenericNew);
+    printf("############ end build type %s\n", corto_fullpath(NULL, type));
 
     return cortopyType;
 error:
@@ -929,39 +784,56 @@ error:
  * Things are added to the typesCache just before they start being serialized
  * so that types with "dependencies" upon themselves don't loop infinitely.
  * This function returns a new reference. I think.
+ * Returns None when the type hasn't finished serializing.
  */
 static PyTypeObject *
 cortopy_tryBuildType(corto_type type)
 {
-    corto_string typeFullpath = corto_fullpath(NULL, type);
-
+    corto_string typeFullpath = corto_strdup(corto_fullpath(NULL, type));
+    printf("trybuildtype typefull path %s\n", typeFullpath);
+    puts("1");
+    printf("going to get key: %s\n", typeFullpath);
+    printf("but the dictionary isss %u\n\n", ((PyObject*)cortopy_typesCache)->ob_refcnt);
     PyObject* pyType = PyDict_GetItemString(cortopy_typesCache, typeFullpath);
+    puts("2");
+    printf("in try build type is none? %d\n", pyType == Py_None);
     if (pyType) {
+        // printf("well no? then %s is the name\n", ((PyTypeObject*)pyType)->tp_name);
+        puts("finish!");
         Py_INCREF(pyType);
+        goto finish;
+    } else if (pyType == Py_None) {
         goto finish;
     }
 
     if (PyDict_SetItemString(cortopy_typesCache, typeFullpath, Py_None)) {
-        puts(" ERROR TRY BUID TYPE SET ITEM STRING");
         goto errorSetCacheNone;
     }
+    printf("trying to serializeeeee %s\n", corto_nameof(type));
     pyType = (PyObject*)cortopy_buildType(type); // TODO check if serializeType increased ref
+    // Py_INCREF(pyType);
     if (pyType == NULL) {
         goto errorSerializeType;
     }
+    printf("built type is none? %d\n", pyType == Py_None);
     // TODO can the value for the key be replaced faster?
-    if (PyDict_DelItemString(cortopy_typesCache, typeFullpath)) {
-        goto errorDelItemNone;
-    }
+    // if (PyDict_DelItemString(cortopy_typesCache, typeFullpath)) {
+    //     goto errorDelItemNone;
+    // }
+    printf("$$$$$ $$$$ $$$setting the key-type: %s-%s\n", typeFullpath, ((PyTypeObject*)pyType)->tp_name);
     if (PyDict_SetItemString(cortopy_typesCache, typeFullpath, pyType)) {
         goto errorSetItemType;
     }
+    PyTypeObject* pytype2 = (PyTypeObject*)PyDict_GetItemString(cortopy_typesCache, typeFullpath);
+    printf("just set and got %s\n", pytype2->tp_name);
 
 finish:
+    corto_dealloc(typeFullpath);
     return (PyTypeObject*)pyType;
 errorSetItemType:
 errorDelItemNone:
 errorSerializeType:
+    corto_dealloc(typeFullpath);
     PyDict_DelItemString(cortopy_typesCache, typeFullpath);
 errorSetCacheNone:
     Py_DECREF(Py_None);
@@ -975,19 +847,25 @@ static PyObject *
 cortopy_getType(PyObject* self, PyObject* args, PyObject* kwargs)
 {
     char* kwds[] = {"type_", NULL};
-    char* typeName;
+    char* typeName = NULL;
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s:CortoObject", kwds, &typeName)) {
         goto error;
     }
 
+    printf("******* going to get type %s\n", typeName);
     corto_object type = corto_resolve(NULL, typeName);
+    printf(" resolved %s\n", typeName);
     if (type == NULL) {
         PyErr_Format(PyExc_ValueError, "type %s could not be found", typeName);
         goto error;
     }
-    PyTypeObject* pyType = cortopy_tryBuildType(type);
+    PyObject* pyType = (PyObject*)cortopy_tryBuildType(type);
+    printf("******* did I get None??? %s -> %d\n", typeName, pyType == Py_None);
     corto_release(type);
     if (pyType == NULL) {
+        goto error;
+    } else if ((PyObject*)pyType == Py_None) {
+        PyErr_Format(PyExc_RuntimeError, "%s is None", typeName);
         goto error;
     }
     return (PyObject*)pyType;
@@ -1097,28 +975,6 @@ static struct PyModuleDef cortopymodule = {
 };
 
 
-
-int cortopy_testFixture() {
-
-    /* Create a new struct type */
-    corto_struct Point = corto_structDeclareChild(NULL, "Point");
-    corto_memberCreateChild(Point, "x", corto_int32_o, 0);
-    corto_memberCreateChild(Point, "y", corto_int32_o, 0);
-    corto_structDefine(Point, NULL, 0);
-
-    /* Create an object with the struct type */
-    corto_object p = corto_createChild(NULL, "p", Point);
-
-    /* Dynamically assign a value to it */
-    corto_fromStr(&p, "{10, 20}");
-
-    /* Print the value to the console */
-    corto_string value = corto_str(p, 0);
-    corto_dealloc(value);
-
-    return 0;
-}
-
 PyMODINIT_FUNC
 PyInit_cortopy(void)
 {
@@ -1127,13 +983,6 @@ PyInit_cortopy(void)
         return NULL;
     }
 
-    cortopy_intType.tp_new = PyType_GenericNew;
-    if (PyType_Ready(&cortopy_intType) < 0) {
-        return NULL;
-    }
-    Py_INCREF(&cortopy_intType);
-    PyModule_AddObject(m, "int", (PyObject *)&cortopy_intType);
-
     cortopy_objectType.tp_new = PyType_GenericNew;
     if (PyType_Ready(&cortopy_objectType) < 0) {
         return NULL;
@@ -1141,25 +990,19 @@ PyInit_cortopy(void)
     Py_INCREF(&cortopy_objectType);
     PyModule_AddObject(m, "object", (PyObject *)&cortopy_objectType);
 
-    cortopy_boolType.tp_new = PyType_GenericNew;
-    if (PyType_Ready(&cortopy_boolType) < 0) {
-        return NULL;
-    }
-    Py_INCREF(&cortopy_boolType);
-    PyModule_AddObject(m, "bool", (PyObject *)&cortopy_boolType);
-
     cortopy_CortoError = PyErr_NewException("cortopy.CortoError", NULL, NULL);
     Py_INCREF(cortopy_CortoError);
     PyModule_AddObject(m, "CortoError", cortopy_CortoError);
 
     cortopy_typesCache = PyDict_New();
+    Py_INCREF(cortopy_typesCache);
+    // TODO maybe put the dictinoary as a member?
+    printf("staaaaaarttttt %u\n\n", ((PyObject*)cortopy_typesCache)->ob_refcnt);
 
     if (corto_start()) {
         PyErr_SetString(cortopy_CortoError, "could not start object store");
         return NULL;
     }
-
-    cortopy_testFixture();
 
     return m;
 }
