@@ -30,7 +30,6 @@ def get_corto_libraries():
             os.path.join(d, "lib" + library + ".so")
             for d in get_corto_library_dirs()
         ]
-        print(search_locations)
         assert any(
             map(os.path.exists, search_locations)
         ), "did not find {}, tried {}".format(library, search_locations)
@@ -48,12 +47,17 @@ def get_sources():
     return glob.glob("src/*.c")
 
 
+def get_runtime_library_dirs():
+    return get_corto_library_dirs()
+
+
 corto_module = Extension(
     'cortopy',
     include_dirs=get_corto_include_dirs(),
     libraries=get_corto_libraries(),
     library_dirs=get_corto_library_dirs(),
     sources=get_sources(),
+    runtime_library_dirs=get_runtime_library_dirs(),
 )
 
 
