@@ -13,6 +13,7 @@ def check_python_version_supported?
     python_version.start_with? v
   end
   unless is_supported
+    python_version = "< 3.3" if python_version.empty?
     raise "Unsupported Python version: #{python_version}"
   end
 end
