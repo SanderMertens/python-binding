@@ -34,9 +34,6 @@ static PyObject*
 cortopy_objectUpdate(cortopy_object* self, PyObject* args, PyObject* kwargs);
 
 static PyObject *
-cortopy_deserialize_integer(corto_object cortoObj);
-
-static PyObject *
 cortopy_deserialize_primitive(corto_object cortoObj);
 
 static PyObject *
@@ -73,14 +70,15 @@ static PyObject *
 cortopy_resolve(PyObject* self, PyObject* args);
 
 static PyObject *
-cortopy_setvalInteger(cortopy_object* self, PyObject* val, corto_type type);
-
-static PyObject *
-cortopy_setvalPrimitive(cortopy_object* self, PyObject* val, corto_type type);
-
-static PyObject *
 cortopy_setval(cortopy_object* self, PyObject* val);
 
+static struct cortopy_pyMemberType
+cortopy_objectTypeMemberType(corto_type type);
+
+struct cortopy_pyMemberType {
+    int type;
+    size_t size;
+};
 
 /*
  * Takes a cortopy.object, a type, or a str
@@ -94,17 +92,13 @@ cortopy_convertToObjectExt(PyObject* o, void* p, const char* msg)
         c = ((cortopy_object*)o)->this;
         corto_claim(c);
     } else if (PyType_Check(o) && PyType_IsSubtype((PyTypeObject*)o, &cortopy_objectType)) {
-        // TODO better way to get the underlying Corto type
-        // TODO maybe we need a metaclass for cortopy types
         name = ((PyTypeObject*)o)->tp_name;
-        printf("got type name %s\n", name); // TODO remove
         c = corto_resolve(NULL, (corto_string)name);
     } else if (PyObject_IsInstance(o, (PyObject*)&PyUnicode_Type)) {
         name = PyUnicode_AsUTF8(o);
         c = corto_resolve(NULL, (corto_string)name);
-        printf("got str name %s\n", name); // TODO remove
     } else {
-        PyErr_Format(PyExc_TypeError, msg, o->ob_type->tp_name);
+        PyErr_Format(PyExc_TypeError, msg, Py_TYPE(o)->tp_name);
         goto error;
     }
     if (c == NULL) {
@@ -304,127 +298,6 @@ static PyTypeObject cortopy_objectType = {
 };
 
 
-
-
-typedef struct {
-    cortopy_object self;
-    PyObject* value;
-} cortopy_int;
-
-
-static struct PyMemberDef cortopy_intMembers[] = {
-    {NULL}
-};
-
-
-/*
- * __new__(parent_id, name, x=0, base=10)?
- * TODO replace this for an __init__ method since we do not want it to be treated as immutable.
- */
-static int
-cortopy_intInit(cortopy_int* self, PyObject* args, PyObject* kwargs)
-{
-    static char *kwds[] = {"parent", "name", "x", NULL};
-    corto_string parentName = NULL;
-    corto_string name = NULL;
-    long long int x = FALSE;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "zz|L:bool", kwds, &parentName, &name, &x)) {
-        goto errorParseTupleAndKeywords;
-    }
-
-    corto_object this = NULL;
-    if (cortopy_objectInitExt((cortopy_object*)self, parentName, name, corto_type(corto_int64_o), &this) || this == NULL) {
-        goto errorInitExt;
-    }
-
-    self->value = Py_BuildValue("L", x);
-
-    if (x) {
-        Py_INCREF(Py_True);
-        self->value = Py_True;
-    } else {
-        Py_INCREF(Py_False);
-        self->value = Py_False;
-    }
-
-    *(corto_int64*)this = x ? TRUE : FALSE;
-    if (corto_define(this)) {
-        PyErr_SetString(cortopy_CortoError, corto_lasterr());
-        goto errorCortoDefine;
-    }
-
-    return 0;
-errorCortoDefine:
-errorInitExt:
-errorParseTupleAndKeywords:
-    return -1;
-}
-
-
-PyTypeObject cortopy_intType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    "cortopy.int",             /* tp_name */
-    sizeof(cortopy_int),       /* tp_basicsize */
-    0,                         /* tp_itemsize */
-    0,                         /* tp_dealloc */
-    0,                         /* tp_print */
-    0,                         /* tp_getattr */
-    0,                         /* tp_setattr */
-    0,                         /* tp_reserved */
-    0,                         /* tp_repr */
-    0,                         /* tp_as_number */
-    0,                         /* tp_as_sequence */
-    0,                         /* tp_as_mapping */
-    0,                         /* tp_hash  */
-    0,                         /* tp_call */
-    0,                         /* tp_str */
-    0,                         /* tp_getattro */
-    0,                         /* tp_setattro */
-    0,                         /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, /* tp_flags */
-    "int type for corto objects", /* tp_doc */
-    0,                         /* tp_traverse */
-    0,                         /* tp_clear */
-    0,                         /* tp_richcompare */
-    0,                         /* tp_weaklistoffset */
-    0,                         /* tp_iter */
-    0,                         /* tp_iternext */
-    0,                         /* tp_methods */
-    cortopy_intMembers,                         /* tp_members */
-    0,                         /* tp_getset */
-    &cortopy_objectType,              /* tp_base */
-    0,                         /* tp_dict */
-    0,                         /* tp_descr_get */
-    0,                         /* tp_descr_set */
-    0,                         /* tp_dictoffset */
-    (initproc)cortopy_intInit,                         /* tp_init */
-    0,                         /* tp_alloc */
-};
-
-
-static PyObject *
-cortopy_deserialize_integer(corto_object cortoObj)
-{
-    corto_type type = corto_typeof(cortoObj);
-    if (type->kind != CORTO_PRIMITIVE && corto_primitive(type)->kind != CORTO_INTEGER) {
-        PyErr_SetString(PyExc_ValueError, "expected corto integer");
-        return NULL;
-    }
-
-    PyObject* intNewArgs = Py_BuildValue("(s s L)", corto_fullpath(NULL, cortoObj), corto_nameof(cortoObj), *(corto_int64 *)cortoObj);
-    if (!intNewArgs) return NULL;
-
-    PyObject* intNewKwargs = PyDict_New();
-    if (!intNewKwargs) return NULL;
-
-    // PyObject* pyObj = cortopy_intInit(&cortopy_intType, intNewArgs, intNewKwargs);
-    // if (!pyObj) return NULL;
-    // if (cortopy_intType.tp_init(pyObj, intNewArgs, intNewKwargs)) return NULL;
-
-    return NULL;
-}
-
 static PyObject *
 cortopy_deserialize_primitive(corto_object cortoObj)
 {
@@ -433,7 +306,7 @@ cortopy_deserialize_primitive(corto_object cortoObj)
     PyObject* pyObj;
     switch (corto_primitive(corto_typeof(cortoObj))->kind) {
     case CORTO_INTEGER:
-        pyObj = cortopy_deserialize_integer(cortoObj);
+        // pyObj = cortopy_deserialize_integer(cortoObj);
         break;
     default:
         PyErr_SetString(PyExc_RuntimeError, "primitive type not supported");
@@ -442,6 +315,7 @@ cortopy_deserialize_primitive(corto_object cortoObj)
     }
     return pyObj;
 }
+
 
 static PyObject *
 cortopy_deserialize_void(corto_object cortoObj)
@@ -486,7 +360,7 @@ cortopy_nameof(PyObject* self, PyObject* args)
         return NULL;
     }
     PyObject* name = Py_None;
-    if (Py_TYPE(o) == &cortopy_intType) {
+    if (Py_TYPE(o) == &cortopy_objectType) {
         name = PyUnicode_FromString(((cortopy_object*)o)->name);
     } else {
         PyErr_SetString(PyExc_TypeError, "did not provide valid Corto object to cortopy.nameof");
@@ -523,10 +397,8 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
         PyErr_SetString(cortopy_CortoError, corto_lasterr());
         goto errorDeclareChild;
     }
-    puts("2");
 
     PyTypeObject* cpType = cortopy_tryBuildType(type);
-    printf("in declare child is none? %d\n", (void*)cpType == Py_None);
     if (cpType == NULL) {
         goto errorTryBuildType;
     } else if ((PyObject*)cpType == Py_None) {
@@ -536,8 +408,6 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
     PyObject* cpObj;
     PyObject* newargs = Py_BuildValue("(s s s)", corto_fullpath(NULL, parent), name, corto_fullpath(NULL, type));
     PyObject* newkwargs = Py_BuildValue("{}");
-    printf("is generic new? %d\n", cpType->tp_new == PyType_GenericNew);
-    printf(" (%s) cpType->tp_new: %p\n", cpType->tp_name, cpType->tp_new);
     cpObj = cpType->tp_new(cpType, newargs, newkwargs);
     if (cpObj == NULL) {
         goto errorNew;
@@ -573,62 +443,161 @@ error:
 }
 
 
-
-
-static PyObject *
-cortopy_setvalInteger(cortopy_object* self, PyObject* val, corto_type type)
+static corto_int16
+cortopy_setvalInteger(void* dest, PyObject* val, corto_type type)
 {
-    int isInteger = PyObject_IsInstance(val, (PyObject *)&PyLong_Type);
-    if (isInteger == 1) {
-        int overflow = 0;
-        signed long long int cVal = PyLong_AsLongLongAndOverflow(val, &overflow);
-        signed long long int max = corto_int(type)->max;
-        signed long long int min = corto_int(type)->min;
-        if (overflow || cVal > max || cVal < min) {
-            PyErr_Format(PyExc_ValueError, "value must be between %lld and %lld, have %S", min, max, val);
-            goto error;
-        }
-        *(signed long long int*)(self->this) = cVal;
-    } else if (isInteger == 0) {
-        PyErr_Format(PyExc_TypeError, "setval argument 1 must be int not %s", val->ob_type->tp_name);
-        goto error;
-    } else {
+    int overflow = 0;
+    signed long long int cVal = PyLong_AsLongLongAndOverflow(val, &overflow);
+    signed long long int max = corto_int(type)->max;
+    signed long long int min = corto_int(type)->min;
+    if (overflow || cVal > max || cVal < min) {
+        PyErr_Format(PyExc_ValueError, "value must be between %lld and %lld, have %S", min, max, val);
         goto error;
     }
-    Py_RETURN_NONE;
+    corto_binaryOperator(type, CORTO_ASSIGN, dest, &cVal, dest);
+    return 0;
 error:
-    return NULL;
+    return -1;
 }
 
+typedef struct cortopysetvalSerializerData {
+    void* dest;      /* pointer to insides of cortopy object */
+    PyObject *val;  /* value for dest */
+} cortopysetvalSerializerData;
 
-static PyObject *
-cortopy_setvalPrimitive(cortopy_object* self, PyObject* val, corto_type type)
+static corto_int16
+cortopy_setvalSerializePrimitive(corto_serializer serializer, corto_value* value, void* data)
 {
-    PyObject* result = NULL;
-    switch(corto_primitive(type)->kind) {
+    CORTO_UNUSED(serializer);
+    corto_int16 result = 0;
+    corto_type type = corto_valueType(value);
+    cortopysetvalSerializerData* _data = data;
+    switch (corto_primitive(type)->kind) {
     case CORTO_INTEGER:
-        result = cortopy_setvalInteger(self, val, type);
+        result = cortopy_setvalInteger(_data->dest, _data->val, type);
         break;
     default:
         PyErr_Format(PyExc_TypeError, "setting value not supported for %s", corto_fullpath(NULL, type));
     }
     return result;
 }
+
+static corto_int16
+cortopy_setvalSerializeComposite(corto_serializer serializer, corto_value* value, void* data)
+{
+    cortopysetvalSerializerData* _data = data;
+    PyObject* val = _data->val;
+    if (Py_TYPE(val) != &PyDict_Type) {
+        PyErr_Format(PyExc_ValueError, "expected dict, got %s", Py_TYPE(val)->tp_name);
+        goto error;
+    }
+    if (corto_serializeMembers(serializer, value, data)) {
+        goto error;
+    }
+    return 0;
+error:
+    return -1;
+}
+
+static corto_int16
+cortopy_setvalSerializeMember(corto_serializer serializer, corto_value* value, void* data)
+{
+    cortopysetvalSerializerData* _data = data;
+    corto_member member = value->is.member.t;
+    corto_string memberName = corto_nameof(member);
+    PyObject* valueDict = _data->val;
+    PyObject* memberValue = PyDict_GetItemString(valueDict, memberName);
+    Py_INCREF(memberValue);
+    struct cortopy_pyMemberType memberType = cortopy_objectTypeMemberType(corto_valueType(value));
+    if (memberValue) {
+        /* TODO get dereference for PyObject* */
+        if (memberType.type == T_OBJECT) {
+            cortopysetvalSerializerData memberData = {*(PyObject**)(_data->dest), memberValue};
+            if (corto_serializeValue(serializer, value, &memberData)) {
+                goto error;
+            }
+        } else {
+            cortopysetvalSerializerData memberData = {_data->dest, memberValue};
+            if (corto_serializeValue(serializer, value, &memberData)) {
+                goto error;
+            }
+        }
+    }
+    _data->dest = ((char*)(_data->dest)) + memberType.size;
+    Py_DECREF(memberValue);
+    return 0;
+error:
+    Py_DECREF(memberValue);
+    return -1;
+}
+
+static corto_int16
+cortopy_setvalSerializeObject(corto_serializer serializer, corto_value* value, void* data)
+{
+    /*
+     * For any cortopy.object, its value starts after the PyObject headers,
+     * which are the size of PyObject.
+     */
+    cortopysetvalSerializerData* _data = data;
+    _data->dest = (cortopy_object*)(_data->dest) + 1;
+    if (corto_serializeValue(serializer, value, data)) {
+        goto error;
+    }
+    return 0;
+error:
+    return -1;
+}
+
+
+
+static struct corto_serializer_s
+cortopy_setvalSerializer(
+    corto_modifier access,
+    corto_operatorKind accessKind,
+    corto_serializerTraceKind trace)
+{
+    struct corto_serializer_s s;
+
+    corto_serializerInit(&s);
+    s.access = access;
+    s.accessKind = accessKind;
+    s.traceKind = trace;
+    s.reference = NULL;
+    s.program[CORTO_PRIMITIVE] = cortopy_setvalSerializePrimitive;
+    s.program[CORTO_COMPOSITE] = cortopy_setvalSerializeComposite;
+    s.program[CORTO_COLLECTION] = NULL;
+    s.metaprogram[CORTO_ELEMENT] = NULL;
+    s.metaprogram[CORTO_MEMBER] = cortopy_setvalSerializeMember;
+    s.metaprogram[CORTO_BASE] = NULL;
+    s.metaprogram[CORTO_OBJECT] = cortopy_setvalSerializeObject;
+
+    return s;
+}
+
+
 
 
 static PyObject *
 cortopy_setval(cortopy_object* self, PyObject* val)
 {
-    corto_type type = corto_typeof(self->this);
-    PyObject* result = NULL;
-    switch (type->kind) {
-    case CORTO_PRIMITIVE:
-        result = cortopy_setvalPrimitive(self, val, type);
-        break;
-    default:
-        PyErr_Format(PyExc_TypeError, "setting value not supported for %s", corto_fullpath(NULL, type));
+    // corto_type type = corto_typeof(self->this);
+    struct corto_serializer_s serializer = cortopy_setvalSerializer(
+        CORTO_PRIVATE, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER
+    );
+    cortopysetvalSerializerData data =  {self, val};
+    corto_type type = corto_resolve(NULL, (corto_string)self->type);
+    if (type == NULL) {
+        PyErr_Format(PyExc_ValueError, "cannot find %s", self->type);
+        goto errorTypeNotFound;
     }
-    return result;
+    if (corto_metaWalk(&serializer, type, &data)) {
+        goto errorMetaWalk;
+    }
+    Py_RETURN_NONE;
+errorMetaWalk:
+    corto_release(type);
+errorTypeNotFound:
+    return NULL;
 }
 
 
@@ -682,6 +651,7 @@ error:
     return -1;
 }
 
+
 static struct corto_serializer_s
 cortopy_typeSerializer(
     corto_modifier access,
@@ -705,12 +675,96 @@ cortopy_typeSerializer(
     return s;
 }
 
+
+
+
+static struct cortopy_pyMemberType
+cortopy_objectTypeMemberType(corto_type type)
+{
+    size_t size = sizeof(PyObject*);
+    int mtype = T_OBJECT;
+    // corto_type type = member->type;
+    switch (type->kind) {
+    case CORTO_PRIMITIVE:
+        switch (corto_primitive(type)->kind) {
+        case CORTO_INTEGER:
+            if (type->size == sizeof(char)) {
+                mtype = T_BYTE;
+                size = sizeof(char);
+                break;
+            } else if (type->size == sizeof(short)) {
+                mtype = T_SHORT;
+                size = sizeof(short);
+                break;
+            } else if (type->size == sizeof(int)) {
+                mtype = T_INT;
+                size = sizeof(int);
+                break;
+            } else if (type->size == sizeof(long)) {
+                mtype = T_LONG;
+                size = sizeof(long);
+                break;
+            } else if (type->size == sizeof(long long)) {
+                mtype = T_LONGLONG;
+                size = sizeof(long long);
+                break;
+            }
+            break;
+        case CORTO_UINTEGER:
+            mtype = T_ULONGLONG;
+            size = sizeof(corto_uint64);
+            break;
+        default:
+            break;
+        }
+    default:
+        break;
+    }
+    return (struct cortopy_pyMemberType){mtype, size};
+}
+
+
+static corto_int16
+cortopy_sizeForTypeSerializerMember(corto_serializer s, corto_value* v, void* data)
+{
+    CORTO_UNUSED(s);
+    struct cortopy_pyMemberType* _data = data;
+    corto_type type = corto_valueType(v);
+    _data->size += cortopy_objectTypeMemberType(type).size;
+    return 0;
+}
+
+
+static struct corto_serializer_s
+cortopy_sizeForTypeSerializer(
+    corto_modifier access,
+    corto_operatorKind accessKind,
+    corto_serializerTraceKind trace)
+{
+    struct corto_serializer_s s;
+
+    corto_serializerInit(&s);
+    s.access = access;
+    s.accessKind = accessKind;
+    s.traceKind = trace;
+    s.reference = NULL;
+    s.program[CORTO_PRIMITIVE] = cortopy_sizeForTypeSerializerMember;
+    // s.program[CORTO_COLLECTION] = NULL;
+    // s.metaprogram[CORTO_ELEMENT] = cortopy_sizeForTypeMember;
+    s.metaprogram[CORTO_MEMBER] = cortopy_sizeForTypeSerializerMember;
+    s.metaprogram[CORTO_BASE] = NULL;
+    s.metaprogram[CORTO_OBJECT] = NULL;
+
+    return s;
+}
+
 static size_t
 cortopy_sizeForType(corto_type type)
 {
-    // printf("size of cortopy object: %lu\n", sizeof(cortopy_object));
-    // printf("size of type size: %llu\n", (long long unsigned)type->size);
-    return sizeof(cortopy_object) + type->size; // TODO get the size of the Corto type
+    struct corto_serializer_s s = cortopy_sizeForTypeSerializer(CORTO_PRIVATE, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER);
+    struct cortopy_pyMemberType data = {0};
+    corto_metaWalk(&s, type, &data);
+    return sizeof(cortopy_object) + data.size;
 }
 
 
@@ -721,20 +775,162 @@ cortopy_typeRepr(PyObject* o)
 }
 
 
+static PyMemberDef*
+cortopy_buildMemberDefPrimitive(corto_type type)
+{
+    struct cortopy_pyMemberType memberType = cortopy_objectTypeMemberType(type);
+    PyMemberDef* memberDefs = corto_alloc(2 * sizeof(PyMemberDef));
+    memberDefs[0] = (PyMemberDef){"val", memberType.type, sizeof(cortopy_object), READONLY, NULL};
+    memberDefs[1] = (PyMemberDef){0};
+    return memberDefs;
+}
+
+
+// TODO we might not really need to cound the members of the base type since they are probably inherited!
+static corto_int16
+cortopy_memberCountSerializerCount(corto_serializer s, corto_value* v, void* data)
+{
+    CORTO_UNUSED(s);
+    CORTO_UNUSED(v);
+    int* count = data;
+    *count += 1;
+    return 0;
+}
+
+static struct corto_serializer_s
+cortopy_memberCountSerializer(
+    corto_modifier access,
+    corto_operatorKind accessKind,
+    corto_serializerTraceKind trace)
+{
+    struct corto_serializer_s s;
+
+    corto_serializerInit(&s);
+    s.access = access;
+    s.accessKind = accessKind;
+    s.traceKind = trace;
+    s.reference = NULL;
+    s.program[CORTO_PRIMITIVE] = NULL;
+    s.metaprogram[CORTO_ELEMENT] = NULL;
+    s.metaprogram[CORTO_MEMBER] = cortopy_memberCountSerializerCount;
+    s.metaprogram[CORTO_BASE] = NULL;
+    s.metaprogram[CORTO_OBJECT] = NULL;
+
+    return s;
+}
+
+struct cortopy_memberDefSerializerData {
+    PyMemberDef* memberDefs;
+    size_t i;
+    size_t totalOffset;
+};
+
+// TODO make buildType allocate a long long for every object
+static corto_int16
+cortopy_memberDefMember(corto_serializer s, corto_value* v, void* data)
+{
+    CORTO_UNUSED(s);
+    CORTO_UNUSED(v);
+    struct cortopy_memberDefSerializerData* _data = data;
+    PyMemberDef* memberDef = &(_data->memberDefs[_data->i]);
+    corto_member member = v->is.member.t;
+    corto_type type = corto_valueType(v);
+    struct cortopy_pyMemberType memberType = cortopy_objectTypeMemberType(type);
+    corto_string name = corto_nameof(member);
+    *memberDef = (PyMemberDef){
+        name,
+        memberType.type,
+        _data->totalOffset,
+        READONLY,
+        NULL
+    };
+    _data->i++;
+    _data->totalOffset += memberType.size;
+    return 0;
+}
+
+static struct corto_serializer_s
+cortopy_memberDefSerializer(
+    corto_modifier access,
+    corto_operatorKind accessKind,
+    corto_serializerTraceKind trace)
+{
+    struct corto_serializer_s s;
+    corto_serializerInit(&s);
+    s.access = access;
+    s.accessKind = accessKind;
+    s.traceKind = trace;
+    s.reference = NULL;
+    s.program[CORTO_PRIMITIVE] = NULL;
+    s.metaprogram[CORTO_ELEMENT] = NULL;
+    s.metaprogram[CORTO_MEMBER] = cortopy_memberDefMember;
+    // s.metaprogram[CORTO_BASE] = NULL;
+    s.metaprogram[CORTO_OBJECT] = NULL;
+
+    return s;
+}
+
+
+static PyMemberDef*
+cortopy_buildMemberDefComposite(corto_type type)
+{
+    struct corto_serializer_s memberCountSerializer = cortopy_memberCountSerializer(
+        CORTO_PRIVATE | CORTO_LOCAL, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER
+    );
+    int memberCount = 1;
+    corto_metaWalk(&memberCountSerializer, type, &memberCount);
+    if (memberCount == 1) {
+        goto finish;
+    }
+    PyMemberDef* memberDefs = corto_alloc(memberCount * sizeof(PyMemberDef));
+    memberDefs[memberCount - 1] = (PyMemberDef){0};
+
+    struct corto_serializer_s memberDefSerializer = cortopy_memberDefSerializer(
+        CORTO_PRIVATE | CORTO_LOCAL, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER
+    );
+    // TODO here offset needs to be the size of the base type
+    struct cortopy_memberDefSerializerData memberDefSerializerData = {memberDefs, 0, sizeof(cortopy_object)};
+    corto_metaWalk(&memberDefSerializer, type, &memberDefSerializerData);
+    return memberDefs;
+finish:
+    return NULL;
+}
+
+
+static PyMemberDef*
+cortopy_buildMemberDef(corto_type type)
+{
+    PyMemberDef* memberDef = NULL;
+
+    switch (type->kind) {
+    case CORTO_PRIMITIVE:
+        memberDef = cortopy_buildMemberDefPrimitive(type);
+        break;
+    case CORTO_COMPOSITE:
+        memberDef = cortopy_buildMemberDefComposite(type);
+        break;
+    default:
+        PyErr_SetString(PyExc_TypeError, "type not supported");
+        break;
+    }
+    return memberDef;
+}
+
+
 static PyTypeObject *
 cortopy_buildType(corto_type type)
 {
     PyTypeObject* baseType = &cortopy_objectType;
     // if (type->kind == CORTO_COMPOSITE) {
-
-    //     PyTypeObject* baseType = cortopy_tryBuildType((corto_type)(corto_interface(type)->base));
-    //     if (baseType == NULL) {
-    //         goto error;
+    //     corto_type base = corto_type(corto_interface(type)->base);
+    //     if (base) {
+    //         PyTypeObject* baseType = cortopy_tryBuildType(base);
+    //         if (baseType == NULL) {
+    //             goto error;
+    //         }
     //     }
     // }
-    printf("############ begin build type %s\n", corto_fullpath(NULL, type));
     corto_string typeFullpath = corto_fullpath(NULL, type);
-    printf("building %s\n", typeFullpath);
     PyObject* pyTypeFullpath = PyUnicode_FromString(typeFullpath);
     if (pyTypeFullpath == NULL) {
         goto error;
@@ -762,6 +958,9 @@ cortopy_buildType(corto_type type)
     cortopyType->tp_new = 0;
     cortopyType->tp_base = baseType;
 
+    cortopyType->tp_members = cortopy_buildMemberDef(type);
+
+    // TODO remove the data object
     struct corto_serializer_s s = cortopy_typeSerializer(CORTO_PRIVATE | CORTO_LOCAL, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER);
     cortopy_typeSerializerData data = {};
     corto_metaWalk(&s, type, &data);
@@ -770,9 +969,6 @@ cortopy_buildType(corto_type type)
         goto error;
     }
     Py_INCREF(cortopyType);
-    
-    printf("is generic new after ready? (%s) %d\n", tp_name, cortopyType->tp_new == PyType_GenericNew);
-    printf("############ end build type %s\n", corto_fullpath(NULL, type));
 
     return cortopyType;
 error:
@@ -790,16 +986,8 @@ static PyTypeObject *
 cortopy_tryBuildType(corto_type type)
 {
     corto_string typeFullpath = corto_strdup(corto_fullpath(NULL, type));
-    printf("trybuildtype typefull path %s\n", typeFullpath);
-    puts("1");
-    printf("going to get key: %s\n", typeFullpath);
-    printf("but the dictionary isss %u\n\n", ((PyObject*)cortopy_typesCache)->ob_refcnt);
     PyObject* pyType = PyDict_GetItemString(cortopy_typesCache, typeFullpath);
-    puts("2");
-    printf("in try build type is none? %d\n", pyType == Py_None);
     if (pyType) {
-        // printf("well no? then %s is the name\n", ((PyTypeObject*)pyType)->tp_name);
-        puts("finish!");
         Py_INCREF(pyType);
         goto finish;
     } else if (pyType == Py_None) {
@@ -809,29 +997,23 @@ cortopy_tryBuildType(corto_type type)
     if (PyDict_SetItemString(cortopy_typesCache, typeFullpath, Py_None)) {
         goto errorSetCacheNone;
     }
-    printf("trying to serializeeeee %s\n", corto_nameof(type));
     pyType = (PyObject*)cortopy_buildType(type); // TODO check if serializeType increased ref
-    // Py_INCREF(pyType);
     if (pyType == NULL) {
         goto errorSerializeType;
     }
-    printf("built type is none? %d\n", pyType == Py_None);
     // TODO can the value for the key be replaced faster?
     // if (PyDict_DelItemString(cortopy_typesCache, typeFullpath)) {
     //     goto errorDelItemNone;
     // }
-    printf("$$$$$ $$$$ $$$setting the key-type: %s-%s\n", typeFullpath, ((PyTypeObject*)pyType)->tp_name);
     if (PyDict_SetItemString(cortopy_typesCache, typeFullpath, pyType)) {
         goto errorSetItemType;
     }
-    PyTypeObject* pytype2 = (PyTypeObject*)PyDict_GetItemString(cortopy_typesCache, typeFullpath);
-    printf("just set and got %s\n", pytype2->tp_name);
 
 finish:
     corto_dealloc(typeFullpath);
     return (PyTypeObject*)pyType;
 errorSetItemType:
-errorDelItemNone:
+// errorDelItemNone:
 errorSerializeType:
     corto_dealloc(typeFullpath);
     PyDict_DelItemString(cortopy_typesCache, typeFullpath);
@@ -852,15 +1034,12 @@ cortopy_getType(PyObject* self, PyObject* args, PyObject* kwargs)
         goto error;
     }
 
-    printf("******* going to get type %s\n", typeName);
     corto_object type = corto_resolve(NULL, typeName);
-    printf(" resolved %s\n", typeName);
     if (type == NULL) {
         PyErr_Format(PyExc_ValueError, "type %s could not be found", typeName);
         goto error;
     }
     PyObject* pyType = (PyObject*)cortopy_tryBuildType(type);
-    printf("******* did I get None??? %s -> %d\n", typeName, pyType == Py_None);
     corto_release(type);
     if (pyType == NULL) {
         goto error;
@@ -933,12 +1112,6 @@ error:
     return NULL;
 }
 
-static PyObject *
-cortopy_getTypesCache(PyObject* self, PyObject* args)
-{
-    return cortopy_typesCache;
-}
-
 
 static PyMethodDef cortopyMethods[] = {
     {"resolve", cortopy_resolve, METH_VARARGS, "Resolves and constructs and object and returns it"},
@@ -948,7 +1121,6 @@ static PyMethodDef cortopyMethods[] = {
     {"str", (PyCFunction)cortopy_cortostr, METH_O, "Returns the string serialization of the in-store object"},
     {"gettype", (PyCFunction)cortopy_getType, METH_VARARGS|METH_KEYWORDS, "Serializes a type into a Python object"},
     {"eval", (PyCFunction)cortopy_eval, METH_O},
-    {"types", (PyCFunction)cortopy_getTypesCache, METH_NOARGS, ""},
     {NULL, NULL, 0, NULL}
 };
 
@@ -960,7 +1132,6 @@ cortopy_free(PyObject* self)
 }
 
 
-// TODO free the cortopy_typesCache in m_free
 static struct PyModuleDef cortopymodule = {
    PyModuleDef_HEAD_INIT,
    "cortopy",   /* name of module */
@@ -995,9 +1166,7 @@ PyInit_cortopy(void)
     PyModule_AddObject(m, "CortoError", cortopy_CortoError);
 
     cortopy_typesCache = PyDict_New();
-    Py_INCREF(cortopy_typesCache);
-    // TODO maybe put the dictinoary as a member?
-    printf("staaaaaarttttt %u\n\n", ((PyObject*)cortopy_typesCache)->ob_refcnt);
+    PyModule_AddObject(m, "types", cortopy_typesCache);
 
     if (corto_start()) {
         PyErr_SetString(cortopy_CortoError, "could not start object store");
