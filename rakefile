@@ -2,6 +2,15 @@ require 'rake/clean'
 
 Version = "0.1"
 ENV['PYTHON_BINDING_VERSION'] = Version
+Debug = true
+
+cflags = %w(-std=c99 -Wstrict-prototypes -pedantic)
+
+if Debug then
+  cflags << "-O0"
+end
+
+ENV["CFLAGS"] = cflags.join(" ")
 
 SupportedPythonVersions = %w(3.4 3.5)
 

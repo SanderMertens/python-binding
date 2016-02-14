@@ -174,17 +174,24 @@ def test_declare_point3d(name, Point3d):
     assert o.z == 3
 
 
-@pytest.mark.xfail
+def test_point4d_subtype_of_point3d(Point3d, Point4d):
+    assert issubclass(Point4d, Point3d)
+
+
 def test_declare_point4d(name, Point4d):
     o = cortopy.declare_child(None, name, Point4d)
-    assert o.w
-    assert o.x
-    assert o.y
-    assert o.z
 
 
-def test_declare_line(name, Point3d, Line):
-    """
-    Line is a nested composite.
-    """
-    o = cortopy.declare_child(None, name, Line)
+def test_members_point4d(name, Point4d):
+    o = cortopy.declare_child(None, name, Point4d)
+    o.w = 11
+    o.x = 22
+    o.y = 33
+    o.z = 44
+    assert (o.w, o.x, o.y, o.z) == (11, 22, 33, 44)
+
+
+def test_setval_point4d(name, Point4d):
+    o = cortopy.declare_child(None, name, Point4d)
+    o.setval({"w": 11, "x": 22, "y": 33, "z": 44})
+    assert (o.w, o.x, o.y, o.z) == (11, 22, 33, 44)
