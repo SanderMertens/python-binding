@@ -103,8 +103,9 @@ struct PointB::
     assert Point1 == Point2
 
 
-def test_eval_expr():
-    cortopy.eval("3 + 4")
+# @pytest.mark.xfail
+# def test_eval_expr():
+#     cortopy.eval("3 + 4")
 
 
 def test_declare_child_int8_string(name):
