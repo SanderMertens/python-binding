@@ -32,6 +32,7 @@ struct Point3d::
     t = cortopy.gettype("Point3d")
     return t
 
+
 @pytest.fixture(scope='module')
 def Point4d(Point3d):
     cortopy.eval(
@@ -42,6 +43,7 @@ struct Point4d: Point3d::
     )
     t = cortopy.gettype("Point4d")
     return t
+
 
 @pytest.fixture(scope='module')
 def Line():
@@ -55,16 +57,9 @@ struct Line::
     return t
 
 
-@pytest.fixture(scope='module')
-def Point3d():
-    cortopy.eval(
-"""
-struct Point3d::
-    x, y, z: int64
-"""
-    )
-    p = cortopy.gettype("Point3d")
-    return p
+def test_types_mapping_proxy():
+    import types
+    assert type(cortopy.types) == types.MappingProxyType
 
 
 def test_declare_child_bad_parent():

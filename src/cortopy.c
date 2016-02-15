@@ -11,6 +11,28 @@ static PyObject* cortopy_CortoError;
  * Value: None when type is being serialized, or cortopy_type object when ready
  */
 static PyObject* cortopy_typesCache;
+static PyObject* cortopy_typesCacheMappingProxy;
+
+static PyTypeObject* MappingProxyType;
+static PyTypeObject* import_MappingProxyType(void) {
+    PyObject* typesModule = PyImport_ImportModule("types");
+    if (typesModule == NULL) {
+        goto error;
+    }
+    PyObject* MappingProxyType = PyObject_GetAttrString(typesModule, "MappingProxyType");
+    Py_DECREF(typesModule);
+    if (MappingProxyType == NULL) {
+        goto error;
+    }
+    if (!PyType_Check(MappingProxyType)) {
+        PyErr_SetString(PyExc_TypeError, "error importing MappingProxyType");
+        Py_DECREF(MappingProxyType);
+        goto error;
+    }
+    return (PyTypeObject*)MappingProxyType;
+error:
+    return NULL;
+}
 
 
 typedef struct {
@@ -321,24 +343,17 @@ cortopy_deserialize_void(corto_object cortoObj)
     if (!newargs) {
         goto errorNewArgs;
     }
-    PyObject* newkwargs = Py_BuildValue("{}");
-    if (!newkwargs) {
-        goto errorNewKwargs;
-    }
-    PyObject* pyObj = cortopy_objectType.tp_new(&cortopy_objectType, newargs, newkwargs);
+    PyObject* pyObj = cortopy_objectType.tp_new(&cortopy_objectType, newargs, NULL);
     if (pyObj == NULL) {
         goto errorNew;
     }
-    if (cortopy_objectType.tp_init(pyObj, newargs, newkwargs)) {
+    if (cortopy_objectType.tp_init(pyObj, newargs, NULL)) {
         goto errorInit;
     }
     return pyObj;
 errorInit:
     Py_DECREF(pyObj);
 errorNew:
-    Py_DECREF(newkwargs);
-errorNewKwargs:
-    Py_DECREF(newargs);
 errorNewArgs:
     return NULL;
 }
@@ -402,12 +417,11 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
     }
     PyObject* cpObj;
     PyObject* newargs = Py_BuildValue("(s s s)", corto_fullpath(NULL, parent), name, corto_fullpath(NULL, type));
-    PyObject* newkwargs = Py_BuildValue("{}");
-    cpObj = cpType->tp_new(cpType, newargs, newkwargs);
+    cpObj = cpType->tp_new(cpType, newargs, NULL);
     if (cpObj == NULL) {
         goto errorNew;
     }
-    if (cpType->tp_init(cpObj, newargs, newkwargs)) {
+    if (cpType->tp_init(cpObj, newargs, NULL)) {
         goto errorInit;
     }
 
@@ -455,10 +469,12 @@ error:
     return -1;
 }
 
+
 typedef struct cortopysetvalSerializerData {
     void* dest;      /* pointer to insides of cortopy object */
     PyObject *val;  /* value for dest */
 } cortopysetvalSerializerData;
+
 
 static corto_int16
 cortopy_setvalSerializePrimitive(corto_serializer serializer, corto_value* value, void* data)
@@ -1109,6 +1125,9 @@ static void
 cortopy_free(PyObject* self)
 {
     corto_stop();
+    Py_XDECREF(MappingProxyType);
+    Py_XDECREF(cortopy_typesCache);
+    Py_XDECREF(cortopy_typesCacheMappingProxy);
 }
 
 
@@ -1124,6 +1143,23 @@ static struct PyModuleDef cortopymodule = {
    NULL,
    (freefunc)cortopy_free
 };
+
+
+static int
+cortopy_initTypesCacheMappingProxy(void)
+{
+    PyObject* typesCacheMappingProxyArgs = Py_BuildValue("(O)", cortopy_typesCache);
+    cortopy_typesCacheMappingProxy = MappingProxyType->tp_new(MappingProxyType, typesCacheMappingProxyArgs, NULL);
+    if (cortopy_typesCacheMappingProxy == NULL) {
+        goto error;
+    }
+    if (MappingProxyType->tp_init(cortopy_typesCacheMappingProxy, typesCacheMappingProxyArgs, NULL)) {
+        goto error;
+    }
+    return 0;
+error:
+    return -1;
+}
 
 
 PyMODINIT_FUNC
@@ -1146,7 +1182,15 @@ PyInit_cortopy(void)
     PyModule_AddObject(m, "CortoError", cortopy_CortoError);
 
     cortopy_typesCache = PyDict_New();
-    PyModule_AddObject(m, "types", cortopy_typesCache);
+    MappingProxyType = import_MappingProxyType();
+    if (MappingProxyType == NULL) {
+        goto error;
+    }
+    if (cortopy_initTypesCacheMappingProxy()) {
+        goto error;
+    }
+
+    PyModule_AddObject(m, "types", cortopy_typesCacheMappingProxy);
 
     if (corto_start()) {
         PyErr_SetString(cortopy_CortoError, "could not start object store");
@@ -1154,4 +1198,6 @@ PyInit_cortopy(void)
     }
 
     return m;
+error:
+    return NULL;
 }
