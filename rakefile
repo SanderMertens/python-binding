@@ -1,5 +1,17 @@
 require 'rake/clean'
 
+Version = "0.1"
+ENV['PYTHON_BINDING_VERSION'] = Version
+Debug = true
+
+cflags = %w(-std=c99 -Wstrict-prototypes -pedantic)
+
+if Debug then
+  cflags << "-O0"
+end
+
+ENV["CFLAGS"] = cflags.join(" ")
+
 SupportedPythonVersions = %w(3.4 3.5)
 
 def check_python_version_supported?
@@ -10,6 +22,7 @@ def check_python_version_supported?
     python_version.start_with? v
   end
   unless is_supported
+    python_version = "< 3.3" if python_version.empty?
     raise "Unsupported Python version: #{python_version}"
   end
 end
@@ -22,13 +35,19 @@ task :build do
     sh "pip uninstall --yes cortopy"
   rescue
   end
-  sh "pip install dist/cortopy-0.1.tar.gz"
+  sh "pip install dist/cortopy-#{Version}.tar.gz"
 end
 
 task :test do
-  sh "nosetests -v"
+  sh "py.test -vvv test/"
 end
 
+task :env do
+  sh "rm -rf env"
+  sh "python3 -m venv env"
+  sh "./env/bin/pip install --upgrade pip"
+  sh "./env/bin/pip install -r requirements-dev.txt"
+end
 
 task :default do
   Rake::Task["build"].invoke
