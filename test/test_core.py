@@ -191,3 +191,7 @@ def test_setval_point4d(name, Point4d):
     o = cortopy.declare_child(None, name, Point4d)
     o.setval({"w": 11, "x": 22, "y": 33, "z": 44})
     assert (o.w, o.x, o.y, o.z) == (11, 22, 33, 44)
+
+def test_update(capsys, name):
+    o = cortopy.declare_child(None, name, "int8")
+    o.update()

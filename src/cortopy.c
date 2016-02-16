@@ -3,6 +3,8 @@
 
 #include "corto/corto.h"
 
+#define CORTOPY_LASTERR_GOTO(errorLabel) do { PyErr_SetString(cortopy_CortoError, corto_lasterr()); goto errorLabel; } while(0)
+#define CORTOPY_LASTERR_GOTO_ERROR() CORTOPY_LASTERR_GOTO(error)
 
 static PyObject* cortopy_CortoError;
 
@@ -170,8 +172,7 @@ cortopy_objectInitExt(cortopy_object* self, corto_object parent, corto_string na
     if (this_p) {
         *this_p = corto_declareChild(parent, (corto_string)name, type);
         if (*this_p == NULL) {
-            PyErr_SetString(cortopy_CortoError, corto_lasterr());
-            goto errorCreateChild;
+            CORTOPY_LASTERR_GOTO(errorCreateChild);
         }
         self->this = *this_p;
     } else {
@@ -179,20 +180,17 @@ cortopy_objectInitExt(cortopy_object* self, corto_object parent, corto_string na
     }
 
     if ((self->name = corto_strdup(name)) == NULL) {
-        PyErr_SetString(PyExc_RuntimeError, corto_lasterr());
-        goto errorDupName;
+        CORTOPY_LASTERR_GOTO(errorDupName);
     }
 
     if ((self->parent = corto_strdup(corto_fullpath(NULL, parent))) == NULL) {
-        PyErr_SetString(PyExc_RuntimeError, corto_lasterr());
-        goto errorDupParentName;
+        CORTOPY_LASTERR_GOTO(errorDupParentName);
     }
     corto_release(parent);
     parent = NULL;
 
     if ((self->type = corto_strdup(corto_fullpath(NULL, type))) == NULL) {
-        PyErr_SetString(PyExc_RuntimeError, corto_lasterr());
-        goto errorDupType;
+        CORTOPY_LASTERR_GOTO(errorDupType);
     }
     corto_release(type);
     type = NULL;
@@ -238,8 +236,7 @@ cortopy_objectInit(cortopy_object* self, PyObject* args, PyObject* kwargs)
     }
 
     if (corto_define(this)) {
-        PyErr_SetString(cortopy_CortoError, corto_lasterr());
-        goto errorDefine;
+        CORTOPY_LASTERR_GOTO(errorDefine);
     }
 
     return 0;
@@ -254,8 +251,26 @@ errorParseTupleAndKeywords:
 static PyObject *
 cortopy_objectUpdate(cortopy_object* self, PyObject* args, PyObject* kwargs)
 {
-    corto_update(self->this);
+    if (corto_typeof(self->this)->kind == CORTO_VOID) {
+        char* kwds[] = {NULL};
+        if (!PyArg_ParseTupleAndKeywords(args, kwargs, "", kwds)) {
+            goto error;
+        }
+        if (corto_update(self->this)) {
+            goto error;
+        }
+    } else {
+        if (corto_updateBegin(self->this)) {
+            CORTOPY_LASTERR_GOTO_ERROR();
+        }
+        if (cortopy_setval(args, kwargs)) {
+            goto error;
+        }
+        corto_updateEnd(self->this);
+    }
     Py_RETURN_NONE;
+error:
+    return NULL;
 }
 
 
@@ -404,8 +419,7 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
 
     corto_object o = corto_declareChild(parent, name, type);
     if (!o) {
-        PyErr_SetString(cortopy_CortoError, corto_lasterr());
-        goto errorDeclareChild;
+        CORTOPY_LASTERR_GOTO(errorDeclareChild);
     }
 
     PyTypeObject* cpType = (PyTypeObject*)cortopy_tryBuildType(type);
@@ -443,8 +457,7 @@ static PyObject *
 cortopy_define(PyObject* module, cortopy_object* o)
 {
     if (corto_define(o->this)) {
-        PyErr_SetString(cortopy_CortoError, corto_lasterr());
-        goto error;
+        CORTOPY_LASTERR_GOTO_ERROR();
     }
     Py_RETURN_NONE;
 error:
@@ -622,8 +635,7 @@ cortopy_cortostr(PyObject* module, cortopy_object* o)
     }
     corto_string str = corto_str(o->this, 0);
     if (str == NULL) {
-        PyErr_SetString(cortopy_CortoError, corto_lasterr());
-        goto error;
+        CORTOPY_LASTERR_GOTO_ERROR();
     }
     PyObject* pystr = PyUnicode_FromString(str);
     corto_dealloc(str);
@@ -946,8 +958,7 @@ cortopy_buildType(corto_type type)
     // TODO revise proper value https://docs.python.org/2/c-api/typeobj.html?highlight=tp_name#c.PyTypeObject.tp_name
     corto_string tp_name = NULL;
     if (corto_asprintf(&tp_name, "%s", corto_nameof(type)) <= 0) {
-        PyErr_SetString(cortopy_CortoError, corto_lasterr());
-        goto error;
+        CORTOPY_LASTERR_GOTO_ERROR();
     }
     cortopyType->tp_name = tp_name;
     cortopyType->tp_basicsize = cortopy_sizeForType(type);
