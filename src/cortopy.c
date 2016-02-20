@@ -91,7 +91,7 @@ static PyObject *
 cortopy_resolve(PyObject* self, PyObject* args);
 
 static PyObject *
-cortopy_setval(cortopy_object* self, PyObject* val);
+cortopy_setval(cortopy_object* self, PyObject* args, PyObject* kwargs);
 
 static struct cortopy_pyMemberType
 cortopy_objectTypeMemberType(corto_type type);
@@ -263,7 +263,7 @@ cortopy_objectUpdate(cortopy_object* self, PyObject* args, PyObject* kwargs)
         if (corto_updateBegin(self->this)) {
             CORTOPY_LASTERR_GOTO_ERROR();
         }
-        if (cortopy_setval(args, kwargs)) {
+        if (cortopy_setval(self, args, kwargs)) {
             goto error;
         }
         corto_updateEnd(self->this);
@@ -276,7 +276,7 @@ error:
 
 static PyMethodDef cortopy_objectMethods[] = {
     {"update", (PyCFunction)cortopy_objectUpdate, METH_VARARGS|METH_KEYWORDS, "updates the value"},
-    {"setval", (PyCFunction)cortopy_setval, METH_O, ""},
+    {"setval", (PyCFunction)cortopy_setval, METH_VARARGS|METH_KEYWORDS, ""},
     {NULL}
 };
 
@@ -466,27 +466,29 @@ error:
 
 
 static corto_int16
-cortopy_setvalInteger(void* dest, PyObject* val, corto_type type)
+cortopy_setvalInteger(void* dest, PyObject* pyValue, corto_type type)
 {
     int overflow = 0;
-    signed long long int cVal = PyLong_AsLongLongAndOverflow(val, &overflow);
+    signed long long int cValue = PyLong_AsLongLongAndOverflow(pyValue, &overflow);
     signed long long int max = corto_int(type)->max;
     signed long long int min = corto_int(type)->min;
-    if (overflow || cVal > max || cVal < min) {
-        PyErr_Format(PyExc_ValueError, "value must be between %lld and %lld, have %S", min, max, val);
+    if (overflow || cValue > max || cValue < min) {
+        PyErr_Format(PyExc_ValueError, "value must be int between %lld and %lld, have %S", min, max, pyValue);
         goto error;
     }
-    corto_binaryOperator(type, CORTO_ASSIGN, dest, &cVal, dest);
+    corto_binaryOperator(type, CORTO_ASSIGN, dest, &cValue, dest);
     return 0;
 error:
     return -1;
 }
 
 
-typedef struct cortopysetvalSerializerData {
-    void* dest;      /* pointer to insides of cortopy object */
-    PyObject *val;  /* value for dest */
-} cortopysetvalSerializerData;
+typedef struct cortopySetvalSerializerData {
+    void* dest;       /* pointer to insides of cortopy object */
+    PyObject *args;   /* original args passed to set val */
+    PyObject *kwargs; /* original kwargs passed to set val */
+    PyObject* value;  /* value that should be written into dest, comes from args or kwargs */
+} cortopySetvalSerializerData;
 
 
 static corto_int16
@@ -495,10 +497,13 @@ cortopy_setvalSerializePrimitive(corto_serializer serializer, corto_value* value
     CORTO_UNUSED(serializer);
     corto_int16 result = 0;
     corto_type type = corto_valueType(value);
-    cortopysetvalSerializerData* _data = data;
+    cortopySetvalSerializerData* _data = data;
+
     switch (corto_primitive(type)->kind) {
     case CORTO_INTEGER:
-        result = cortopy_setvalInteger(_data->dest, _data->val, type);
+        {
+            result = cortopy_setvalInteger(_data->dest, _data->value, type);
+        }
         break;
     default:
         PyErr_Format(PyExc_TypeError, "setting value not supported for %s", corto_fullpath(NULL, type));
@@ -509,12 +514,14 @@ cortopy_setvalSerializePrimitive(corto_serializer serializer, corto_value* value
 static corto_int16
 cortopy_setvalSerializeComposite(corto_serializer serializer, corto_value* value, void* data)
 {
-    cortopysetvalSerializerData* _data = data;
-    PyObject* val = _data->val;
-    if (Py_TYPE(val) != &PyDict_Type) {
-        PyErr_Format(PyExc_ValueError, "expected dict, got %s", Py_TYPE(val)->tp_name);
+    cortopySetvalSerializerData* _data = data;
+    static char* kwds[] = {"value", NULL};
+    PyObject* valueDict = NULL;
+    // TODO this function may not have to parse arguments
+    if (!PyArg_ParseTupleAndKeywords(_data->args, _data->kwargs, "O!", kwds, &PyDict_Type, &valueDict)) {
         goto error;
     }
+    _data->value = valueDict;
     if (corto_serializeMembers(serializer, value, data)) {
         goto error;
     }
@@ -526,26 +533,25 @@ error:
 static corto_int16
 cortopy_setvalSerializeMember(corto_serializer serializer, corto_value* value, void* data)
 {
-    cortopysetvalSerializerData* _data = data;
+    cortopySetvalSerializerData* _data = data;
     corto_member member = value->is.member.t;
     corto_string memberName = corto_nameof(member);
-    PyObject* valueDict = _data->val;
+    PyObject* valueDict = _data->value;
     PyObject* memberValue = PyDict_GetItemString(valueDict, memberName);
-    Py_INCREF(memberValue);
     struct cortopy_pyMemberType memberType = cortopy_objectTypeMemberType(corto_valueType(value));
     if (memberValue) {
-        /* TODO get dereference for PyObject* */
-        if (memberType.type == T_OBJECT) {
-            cortopysetvalSerializerData memberData = {*(PyObject**)(_data->dest), memberValue};
-            if (corto_serializeValue(serializer, value, &memberData)) {
-                goto error;
-            }
-        } else {
-            cortopysetvalSerializerData memberData = {_data->dest, memberValue};
-            if (corto_serializeValue(serializer, value, &memberData)) {
-                goto error;
-            }
+        Py_INCREF(memberValue);
+        cortopySetvalSerializerData memberData = *_data;
+        memberData.value = memberValue;
+        if (corto_serializeValue(serializer, value, &memberData)) {
+            goto error;
         }
+        // if (memberType.type == T_OBJECT) {
+        // } else {
+        //     if (corto_serializeValue(serializer, value, &memberData)) {
+        //         goto error;
+        //     }
+        // }
     }
     _data->dest = ((char*)(_data->dest)) + memberType.size;
     Py_DECREF(memberValue);
@@ -562,7 +568,25 @@ cortopy_setvalSerializeObject(corto_serializer serializer, corto_value* value, v
      * For any cortopy.object, its value starts after the PyObject headers,
      * which are the size of PyObject.
      */
-    cortopysetvalSerializerData* _data = data;
+    cortopySetvalSerializerData* _data = data;
+    PyObject* pyValue = NULL;
+    static char* kwds[] = {"value", NULL};
+    switch (corto_valueType(value)->kind) {
+    case CORTO_PRIMITIVE:
+        if (!PyArg_ParseTupleAndKeywords(_data->args, _data->kwargs, "O:setval", kwds, &pyValue)) {
+            goto error;
+        }
+        break;
+    case CORTO_COMPOSITE:
+        if (!PyArg_ParseTupleAndKeywords(_data->args, _data->kwargs, "O!:setval", kwds, &PyDict_Type, &pyValue)) {
+            goto error;
+        }
+        break;
+    default:
+        PyErr_Format(PyExc_ValueError, "cannot setval on this type");
+        goto error;
+    }
+    _data->value = pyValue;
     _data->dest = (cortopy_object*)(_data->dest) + 1;
     if (corto_serializeValue(serializer, value, data)) {
         goto error;
@@ -598,15 +622,14 @@ cortopy_setvalSerializer(
 }
 
 
-
-
 static PyObject *
-cortopy_setval(cortopy_object* self, PyObject* val)
+cortopy_setval(cortopy_object* self, PyObject* args, PyObject* kwargs)
 {
+    /* Argument parsing is done when during object-level serialization */
     struct corto_serializer_s serializer = cortopy_setvalSerializer(
         CORTO_PRIVATE, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER
     );
-    cortopysetvalSerializerData data =  {self, val};
+    cortopySetvalSerializerData data = {self, args, kwargs, NULL};
     corto_type type = corto_resolve(NULL, (corto_string)self->type);
     if (type == NULL) {
         PyErr_Format(PyExc_ValueError, "cannot find %s", self->type);

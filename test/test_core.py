@@ -165,9 +165,7 @@ def test_int8_mro(name):
 def test_declare_point3d(name, Point3d):
     o = cortopy.declare_child(None, name, Point3d)
     o.setval({"x": 1, "y": 2, "z": 3})
-    assert o.x == 1
-    assert o.y == 2
-    assert o.z == 3
+    assert (o.x, o.y, o.z) == (1, 2, 3)
 
 
 def test_point4d_subtype_of_point3d(Point3d, Point4d):
