@@ -45,8 +45,8 @@ struct Point4d: Point3d::
     return t
 
 
-@pytest.fixture(scope='module')
-def Line():
+@pytest.fixture(scope="module")
+def Line(Point3d):
     cortopy.eval(
 """
 struct Line::
@@ -190,6 +190,21 @@ def test_setval_point4d(name, Point4d):
     o.setval({"w": 11, "x": 22, "y": 33, "z": 44})
     assert (o.w, o.x, o.y, o.z) == (11, 22, 33, 44)
 
-def test_update(capsys, name):
+
+def test_update(name):
     o = cortopy.declare_child(None, name, "int8")
     o.update()
+
+
+def test_line_type_error(Line, name):
+    line = cortopy.declare_child(None, name, Line)
+    with pytest.raises(TypeError):
+        line.a = 1
+    with pytest.raises(TypeError):
+        line.b = "b"
+
+def test_line_setval(Line, Point3d, name):
+    line = cortopy.declare_child(None, name, Line)
+    point = cortopy.declare_child(None, name + "_", Point3d)
+    line.a = point
+    assert line.a == point

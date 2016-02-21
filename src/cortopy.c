@@ -4,7 +4,6 @@
 #include "corto/corto.h"
 
 #define CORTOPY_LASTERR_GOTO(errorLabel) do { PyErr_SetString(cortopy_CortoError, corto_lasterr()); goto errorLabel; } while(0)
-#define CORTOPY_LASTERR_GOTO_ERROR() CORTOPY_LASTERR_GOTO(error)
 
 static PyObject* cortopy_CortoError;
 
@@ -93,13 +92,13 @@ cortopy_resolve(PyObject* self, PyObject* args);
 static PyObject *
 cortopy_setval(cortopy_object* self, PyObject* args, PyObject* kwargs);
 
-static struct cortopy_pyMemberType
-cortopy_objectTypeMemberType(corto_type type);
-
-struct cortopy_pyMemberType {
+typedef struct cortopy_pyMemberType {
     int type;
     size_t size;
-};
+} cortopy_pyMemberType;
+
+static cortopy_pyMemberType
+cortopy_objectTypeMemberType(corto_type type);
 
 /*
  * Takes a cortopy.object, a type, or a str
@@ -261,7 +260,7 @@ cortopy_objectUpdate(cortopy_object* self, PyObject* args, PyObject* kwargs)
         }
     } else {
         if (corto_updateBegin(self->this)) {
-            CORTOPY_LASTERR_GOTO_ERROR();
+            CORTOPY_LASTERR_GOTO(error);
         }
         if (cortopy_setval(self, args, kwargs)) {
             goto error;
@@ -438,6 +437,7 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
     if (cpType->tp_init(cpObj, newargs, NULL)) {
         goto errorInit;
     }
+    Py_DECREF(newargs);
 
     corto_release(type);
     corto_release(parent);
@@ -457,7 +457,7 @@ static PyObject *
 cortopy_define(PyObject* module, cortopy_object* o)
 {
     if (corto_define(o->this)) {
-        CORTOPY_LASTERR_GOTO_ERROR();
+        CORTOPY_LASTERR_GOTO(error);
     }
     Py_RETURN_NONE;
 error:
@@ -658,7 +658,7 @@ cortopy_cortostr(PyObject* module, cortopy_object* o)
     }
     corto_string str = corto_str(o->this, 0);
     if (str == NULL) {
-        CORTOPY_LASTERR_GOTO_ERROR();
+        CORTOPY_LASTERR_GOTO(error);
     }
     PyObject* pystr = PyUnicode_FromString(str);
     corto_dealloc(str);
@@ -669,9 +669,6 @@ error:
 
 
 /* START TYPE DESERIALIZER */
-
-static PyObject *
-cortopy_tryBuildType(corto_type type);
 
 
 static corto_int16
@@ -714,7 +711,7 @@ cortopy_typeSerializer(
 }
 
 
-static struct cortopy_pyMemberType
+static cortopy_pyMemberType
 cortopy_objectTypeMemberType(corto_type type)
 {
     size_t size = sizeof(PyObject*);
@@ -809,25 +806,48 @@ cortopy_typeRepr(PyObject* o)
 }
 
 
-static PyMemberDef*
+static int
 cortopy_buildMemberDefPrimitive(PyTypeObject* cpType, corto_type cType)
 {
     CORTO_UNUSED(cpType);
     struct cortopy_pyMemberType memberType = cortopy_objectTypeMemberType(cType);
     PyMemberDef* memberDefs = corto_alloc(2 * sizeof(PyMemberDef));
+    if (memberDefs == NULL) {
+        PyErr_NoMemory();
+        goto error;
+    }
     memberDefs[0] = (PyMemberDef){"val", memberType.type, sizeof(cortopy_object), 0, NULL};
     memberDefs[1] = (PyMemberDef){0};
-    return memberDefs;
+    cpType->tp_members = memberDefs;
+    return 0;
+error:
+    return -1;
+}
+
+
+typedef struct cortopy_memberCountData {size_t memberDefCount; size_t getSetDefCount; } cortopy_memberCountData;
+
+
+/*
+ * Determines whether a type should use PyMemberDef or PyGetSetDef.
+ */
+static corto_bool
+cortopy_usesGetSetDef(corto_type type)
+{
+    return type->kind != CORTO_PRIMITIVE;
 }
 
 
 static corto_int16
-cortopy_memberCountSerializerCount(corto_serializer s, corto_value* v, void* data)
+cortopy_memberCountSerializerCount(corto_serializer serializer, corto_value* value, void* data)
 {
-    CORTO_UNUSED(s);
-    CORTO_UNUSED(v);
-    int* count = data;
-    *count += 1;
+    CORTO_UNUSED(serializer);
+    cortopy_memberCountData *_data = data;
+    if (cortopy_usesGetSetDef(corto_valueType(value))) {
+        _data->getSetDefCount++;
+    } else {
+        _data->memberDefCount++;
+    }
     return 0;
 }
 
@@ -855,34 +875,112 @@ cortopy_memberCountSerializer(
 
 typedef struct cortopy_memberDefSerializerData {
     PyMemberDef* memberDefs;
-    size_t i;
+    PyGetSetDef* getSetDefs;
+    size_t memberDefCount;
+    size_t getSetDefCount;
     size_t totalOffset;
 } cortopy_memberDefSerializerData;
 
 
-static corto_int16
-cortopy_memberDefMember(corto_serializer s, corto_value* v, void* data)
+typedef struct cortopy_getSetClosure {
+    char* name;
+    PyObject* type;
+    size_t offset;
+} cortopy_getSetClosure;
+
+
+static PyObject *
+cortopy_compositeGetter(PyObject* self, void* closure)
 {
-    CORTO_UNUSED(s);
-    CORTO_UNUSED(v);
-    cortopy_memberDefSerializerData* _data = data;
-    PyMemberDef* memberDef = &(_data->memberDefs[_data->i]);
-    corto_member member = v->is.member.t;
-    corto_type type = corto_valueType(v);
-    struct cortopy_pyMemberType memberType = cortopy_objectTypeMemberType(type);
-    corto_string name = corto_nameof(member);
-    *memberDef = (PyMemberDef){
-        name,
-        memberType.type,
-        _data->totalOffset,
-        0,
-        NULL
-    };
-    _data->i++;
-    _data->totalOffset += memberType.size;
+    cortopy_getSetClosure* _closure = closure;
+    PyObject** value = (PyObject**)(((char*)(self)) + _closure->offset);
+    if (*value == NULL) {
+        PyErr_Format(PyExc_ValueError, "could not retrieve value from member %s", _closure->name);
+        goto error;
+    }
+    return *value;
+error:
+    return NULL;
+}
+
+
+static int
+cortopy_compositeSetter(PyObject* self, PyObject* value, void* closure)
+{
+    cortopy_getSetClosure* _closure = closure;
+    if (!PyObject_IsInstance(value, _closure->type)) {
+        PyErr_Format(PyExc_TypeError, "expected type %S but got type %S", _closure->type, Py_TYPE(value));
+        goto error;
+    }
+    Py_INCREF(value);
+    PyObject** target = (PyObject**)((char*)self + _closure->offset);
+    Py_XDECREF(*target);
+    *target = value;
+    return 0;
+error:
+    return -1;
+}
+
+
+static int
+cortopy_createGetSetDef(char* name, PyObject* type, cortopy_memberDefSerializerData* data)
+{
+    PyGetSetDef* getSetDef = &(data->getSetDefs[data->getSetDefCount]);
+    cortopy_getSetClosure* closure = corto_alloc(sizeof(cortopy_getSetClosure));
+    if (closure == NULL) {
+        PyErr_NoMemory();
+        goto error;
+    }
+    *closure = (cortopy_getSetClosure){name, type, data->totalOffset};
+    *getSetDef = (PyGetSetDef){name, cortopy_compositeGetter, cortopy_compositeSetter, NULL, closure};
+    data->getSetDefCount++;
+    return 0;
+error:
+    return -1;
+}
+
+
+static int
+cortopy_createMemberDef(char* name, cortopy_pyMemberType* memberType, cortopy_memberDefSerializerData* data)
+{
+    PyMemberDef* memberDef = &(data->memberDefs[data->memberDefCount]);
+    *memberDef = (PyMemberDef){name, memberType->type, data->totalOffset, 0, NULL};
+    data->memberDefCount++;
     return 0;
 }
 
+
+static corto_int16
+cortopy_memberDefMember(corto_serializer serializer, corto_value* value, void* data)
+{
+    CORTO_UNUSED(serializer);
+    cortopy_memberDefSerializerData* _data = data;
+    corto_member member = value->is.member.t;
+    corto_string name = corto_nameof(member);
+    corto_type type = corto_valueType(value);
+    cortopy_pyMemberType memberType = cortopy_objectTypeMemberType(type);
+    if (cortopy_usesGetSetDef(type)) {
+        PyObject* cpType = cortopy_tryBuildType(type);
+        if (cpType == NULL) {
+            goto error;
+        }
+        if (cortopy_createGetSetDef(name, cpType, _data)) {
+            goto error;
+        }
+    } else {
+        if (cortopy_createMemberDef(name, &memberType, _data)) {
+            goto error;
+        }
+    }
+    _data->totalOffset += memberType.size;
+    return 0;
+error:
+    return -1;
+}
+
+/*
+ * Serializer that creates PyMemberDef and PyGetSetDef instances for a class
+ */
 static struct corto_serializer_s
 cortopy_memberDefSerializer(
     corto_modifier access,
@@ -905,49 +1003,78 @@ cortopy_memberDefSerializer(
 }
 
 
-static PyMemberDef*
+static int
 cortopy_buildMemberDefComposite(PyTypeObject* cpType, corto_type cType)
 {
+    /* Count PyMemberDef's and PyGetSetDef's required */
     struct corto_serializer_s memberCountSerializer = cortopy_memberCountSerializer(
         CORTO_PRIVATE | CORTO_LOCAL, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER
     );
-    int memberCount = 0;
-    corto_metaWalk(&memberCountSerializer, cType, &memberCount);
-    if (memberCount == 0) {
+    cortopy_memberCountData memberCountData = {0, 0};
+    corto_metaWalk(&memberCountSerializer, cType, &memberCountData);
+    size_t memberDefCount = memberCountData.memberDefCount;
+    size_t getSetDefCount = memberCountData.getSetDefCount;
+    if (memberDefCount == 0 && getSetDefCount == 0) {
         goto finish;
     }
-    PyMemberDef* memberDefs = corto_alloc((memberCount + 1) * sizeof(PyMemberDef));
-    memberDefs[memberCount] = (PyMemberDef){0};
 
+    PyMemberDef* memberDefs = corto_alloc((memberDefCount + 1) * sizeof(PyMemberDef));
+    if (memberDefs == NULL) {
+        PyErr_NoMemory();
+        goto errorAllocMemberDefs;
+    }
+    memberDefs[memberDefCount] = (PyMemberDef){0};
+
+    PyGetSetDef* getSetDefs = corto_alloc((getSetDefCount + 1) * sizeof(PyGetSetDef));
+    if (getSetDefs == NULL) {
+        PyErr_NoMemory();
+        goto errorAllocGetSetDefs;
+    }
+    getSetDefs[getSetDefCount] = (PyGetSetDef){0};
+
+    /* Initialize PyMemberDef's and PyGetSetDef's */
     struct corto_serializer_s memberDefSerializer = cortopy_memberDefSerializer(
         CORTO_PRIVATE | CORTO_LOCAL, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER
     );
     PyTypeObject* base = cpType->tp_base;
-    cortopy_memberDefSerializerData memberDefSerializerData = {memberDefs, 0, base->tp_basicsize};
+    cortopy_memberDefSerializerData memberDefSerializerData = {memberDefs, getSetDefs, 0, 0, base->tp_basicsize};
     corto_metaWalk(&memberDefSerializer, cType, &memberDefSerializerData);
-    return memberDefs;
+
+    /* Put the PyMemberDef's and PyGetSetDef into the tp_members and tp_getset slots */
+    cpType->tp_members = memberDefs;
+    cpType->tp_getset = getSetDefs;
 finish:
-    return NULL;
+
+    return 0;
+errorAllocGetSetDefs:
+    corto_dealloc(memberDefs);
+errorAllocMemberDefs:
+    return -1;
 }
 
 
-static PyMemberDef*
+static int
+/* tp_members and tp_getset */
 cortopy_buildMemberDef(PyTypeObject* cpType, corto_type cType)
 {
-    PyMemberDef* memberDef = NULL;
-
     switch (cType->kind) {
     case CORTO_PRIMITIVE:
-        memberDef = cortopy_buildMemberDefPrimitive(cpType, cType);
+        if (cortopy_buildMemberDefPrimitive(cpType, cType)) {
+            goto error;
+        }
         break;
     case CORTO_COMPOSITE:
-        memberDef = cortopy_buildMemberDefComposite(cpType, cType);
+        if (cortopy_buildMemberDefComposite(cpType, cType)) {
+            goto error;
+        }
         break;
     default:
         PyErr_SetString(PyExc_TypeError, "type not supported");
         break;
     }
-    return memberDef;
+    return 0;
+error:
+    return -1;
 }
 
 
@@ -981,7 +1108,7 @@ cortopy_buildType(corto_type type)
     // TODO revise proper value https://docs.python.org/2/c-api/typeobj.html?highlight=tp_name#c.PyTypeObject.tp_name
     corto_string tp_name = NULL;
     if (corto_asprintf(&tp_name, "%s", corto_nameof(type)) <= 0) {
-        CORTOPY_LASTERR_GOTO_ERROR();
+        CORTOPY_LASTERR_GOTO(error);
     }
     cortopyType->tp_name = tp_name;
     cortopyType->tp_basicsize = cortopy_sizeForType(type);
@@ -990,7 +1117,10 @@ cortopy_buildType(corto_type type)
     cortopyType->tp_repr = cortopy_typeRepr;
     cortopyType->tp_new = 0;
     cortopyType->tp_base = (PyTypeObject*)baseType;
-    cortopyType->tp_members = cortopy_buildMemberDef(cortopyType, type);
+    /* tp_members and tp_getset */
+    if (cortopy_buildMemberDef(cortopyType, type)) {
+        goto error;
+    }
 
     // TODO remove the data object
     struct corto_serializer_s s = cortopy_typeSerializer(CORTO_PRIVATE | CORTO_LOCAL, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER);
