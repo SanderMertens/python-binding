@@ -4,11 +4,6 @@ import os
 from distutils.core import setup
 from distutils.core import Extension
 
-version = os.getenv("PYTHON_BINDING_VERSION")
-
-if not version:
-    raise Exception("python-binding version not set; please do `rake build`")
-
 
 HAS_CORTO_INSTALLATION = False
 CORTO_HOME = '/usr/local' if HAS_CORTO_INSTALLATION else os.path.join(os.getenv('HOME'), '.corto')
@@ -63,7 +58,7 @@ corto_module = Extension(
 
 setup(
     name='cortopy',
-    version=version,
+    version="0.1.0",
     ext_modules=[corto_module],
     author='Johnny Lee',
     author_email='jleeothon@gmail.com',
@@ -80,6 +75,7 @@ setup(
         'Operating System :: POSIX :: Linux',
         'Programming Language :: C',
         'Programming Language :: Python',
+        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Topic :: Internet',
     ],

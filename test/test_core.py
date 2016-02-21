@@ -45,8 +45,8 @@ struct Point4d: Point3d::
     return t
 
 
-@pytest.fixture(scope='module')
-def Line():
+@pytest.fixture(scope="module")
+def Line(Point3d):
     cortopy.eval(
 """
 struct Line::
@@ -165,9 +165,7 @@ def test_int8_mro(name):
 def test_declare_point3d(name, Point3d):
     o = cortopy.declare_child(None, name, Point3d)
     o.setval({"x": 1, "y": 2, "z": 3})
-    assert o.x == 1
-    assert o.y == 2
-    assert o.z == 3
+    assert (o.x, o.y, o.z) == (1, 2, 3)
 
 
 def test_point4d_subtype_of_point3d(Point3d, Point4d):
@@ -191,3 +189,23 @@ def test_setval_point4d(name, Point4d):
     o = cortopy.declare_child(None, name, Point4d)
     o.setval({"w": 11, "x": 22, "y": 33, "z": 44})
     assert (o.w, o.x, o.y, o.z) == (11, 22, 33, 44)
+
+
+def test_update(name):
+    o = cortopy.declare_child(None, name, "int8")
+    o.update(3)
+    assert o.val == 3
+
+
+def test_line_type_error(Line, name):
+    line = cortopy.declare_child(None, name, Line)
+    with pytest.raises(TypeError):
+        line.a = 1
+    with pytest.raises(TypeError):
+        line.b = "b"
+
+def test_line_setval(Line, Point3d, name):
+    line = cortopy.declare_child(None, name, Line)
+    point = cortopy.declare_child(None, name + "_", Point3d)
+    line.a = point
+    assert line.a == point
