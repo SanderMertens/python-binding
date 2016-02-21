@@ -58,7 +58,7 @@ corto_module = Extension(
 
 setup(
     name='cortopy',
-    version='0.1.0',
+    version="0.1.0",
     ext_modules=[corto_module],
     author='Johnny Lee',
     author_email='jleeothon@gmail.com',

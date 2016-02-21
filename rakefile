@@ -1,7 +1,7 @@
 require 'rake/clean'
 
-Version = "0.1"
-ENV['PYTHON_BINDING_VERSION'] = Version
+PythonBindingVersion = "0.1.0"
+ENV['PYTHON_BINDING_VERSION'] = PythonBindingVersion
 Debug = true
 
 cflags = %w(-std=c99 -Wstrict-prototypes -pedantic)
@@ -35,7 +35,7 @@ task :build do
     sh "pip uninstall --yes cortopy"
   rescue
   end
-  sh "pip install dist/cortopy-#{Version}.tar.gz"
+  sh "pip install dist/cortopy-#{PythonBindingVersion}.tar.gz"
 end
 
 task :test do
@@ -43,10 +43,12 @@ task :test do
 end
 
 task :env do
-  sh "rm -rf env"
-  sh "python3 -m venv env"
-  sh "./env/bin/pip install --upgrade pip"
-  sh "./env/bin/pip install -r requirements-dev.txt"
+  {"env34" => "python3.4", "env35" => "python3.5"}.each do |env, python|
+    sh "rm -rf #{env}"
+    sh "#{python} -m venv #{env}"
+    sh "./#{env}/bin/pip install --upgrade pip"
+    sh "./#{env}/bin/pip install -r requirements-dev.txt"
+  end
 end
 
 task :default do

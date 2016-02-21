@@ -248,6 +248,38 @@ errorParseTupleAndKeywords:
 
 
 static PyObject *
+cortopy_objectBeginUpdate(cortopy_object* self)
+{
+    if (corto_updateBegin(self->this)) {
+        CORTOPY_LASTERR_GOTO(error);
+    }
+    Py_RETURN_NONE;
+error:
+    return NULL;
+}
+
+
+static PyObject *
+cortopy_objectCancelUpdate(cortopy_object* self)
+{
+    if (corto_updateCancel(self->this)) {
+        CORTOPY_LASTERR_GOTO(error);
+    }
+    Py_RETURN_NONE;
+error:
+    return NULL;
+}
+
+
+static PyObject *
+cortopy_objectEndUpdate(cortopy_object* self)
+{
+    corto_updateEnd(self->this);
+    Py_RETURN_NONE;
+}
+
+
+static PyObject *
 cortopy_objectUpdate(cortopy_object* self, PyObject* args, PyObject* kwargs)
 {
     if (corto_typeof(self->this)->kind == CORTO_VOID) {
@@ -262,7 +294,7 @@ cortopy_objectUpdate(cortopy_object* self, PyObject* args, PyObject* kwargs)
         if (corto_updateBegin(self->this)) {
             CORTOPY_LASTERR_GOTO(error);
         }
-        if (cortopy_setval(self, args, kwargs)) {
+        if (cortopy_setval(self, args, kwargs) == NULL) {
             goto error;
         }
         corto_updateEnd(self->this);
@@ -275,6 +307,9 @@ error:
 
 static PyMethodDef cortopy_objectMethods[] = {
     {"update", (PyCFunction)cortopy_objectUpdate, METH_VARARGS|METH_KEYWORDS, "updates the value"},
+    {"begin_update", (PyCFunction)cortopy_objectBeginUpdate, METH_NOARGS, "begins an update"},
+    {"cancel_update", (PyCFunction)cortopy_objectCancelUpdate, METH_NOARGS, "cancels an update"},
+    {"end_update", (PyCFunction)cortopy_objectEndUpdate, METH_NOARGS, "ends an update"},
     {"setval", (PyCFunction)cortopy_setval, METH_VARARGS|METH_KEYWORDS, ""},
     {NULL}
 };
@@ -581,7 +616,7 @@ cortopy_setvalSerializeObject(corto_serializer serializer, corto_value* value, v
         goto error;
     }
     _data->value = pyValue;
-    _data->dest = (cortopy_object*)(_data->dest) + 1;
+    _data->dest = CORTO_OFFSET(_data->dest, sizeof(cortopy_object));
     if (corto_serializeValue(serializer, value, data)) {
         goto error;
     }
@@ -632,6 +667,7 @@ cortopy_setval(cortopy_object* self, PyObject* args, PyObject* kwargs)
     if (corto_metaWalk(&serializer, type, &data)) {
         goto errorMetaWalk;
     }
+    corto_release(type);
     Py_RETURN_NONE;
 errorMetaWalk:
     corto_release(type);

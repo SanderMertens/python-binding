@@ -193,7 +193,8 @@ def test_setval_point4d(name, Point4d):
 
 def test_update(name):
     o = cortopy.declare_child(None, name, "int8")
-    o.update()
+    o.update(3)
+    assert o.val == 3
 
 
 def test_line_type_error(Line, name):
