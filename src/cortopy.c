@@ -546,14 +546,8 @@ cortopy_setvalSerializeMember(corto_serializer serializer, corto_value* value, v
         if (corto_serializeValue(serializer, value, &memberData)) {
             goto error;
         }
-        // if (memberType.type == T_OBJECT) {
-        // } else {
-        //     if (corto_serializeValue(serializer, value, &memberData)) {
-        //         goto error;
-        //     }
-        // }
     }
-    _data->dest = ((char*)(_data->dest)) + memberType.size;
+    _data->dest = CORTO_OFFSET(_data->dest, memberType.size);
     Py_DECREF(memberValue);
     return 0;
 error:
@@ -893,7 +887,7 @@ static PyObject *
 cortopy_compositeGetter(PyObject* self, void* closure)
 {
     cortopy_getSetClosure* _closure = closure;
-    PyObject** value = (PyObject**)(((char*)(self)) + _closure->offset);
+    PyObject** value = CORTO_OFFSET(self, _closure->offset);
     if (*value == NULL) {
         PyErr_Format(PyExc_ValueError, "could not retrieve value from member %s", _closure->name);
         goto error;
@@ -913,7 +907,7 @@ cortopy_compositeSetter(PyObject* self, PyObject* value, void* closure)
         goto error;
     }
     Py_INCREF(value);
-    PyObject** target = (PyObject**)((char*)self + _closure->offset);
+    PyObject** target = CORTO_OFFSET(self, _closure->offset);
     Py_XDECREF(*target);
     *target = value;
     return 0;
