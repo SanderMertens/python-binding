@@ -369,7 +369,7 @@ cortopy_deserialize_primitive(corto_object cortoObj)
 {
     corto_assert(corto_typeof(cortoObj)->kind != CORTO_PRIMITIVE, "expected corto primitive");
 
-    PyObject* pyObj;
+    PyObject* pyObj = NULL;
     switch (corto_primitive(corto_typeof(cortoObj))->kind) {
     case CORTO_INTEGER:
         // pyObj = cortopy_deserialize_integer(cortoObj);
@@ -1205,10 +1205,9 @@ finish:
     return pyType;
 errorSetItemType:
 errorSerializeType:
-    corto_dealloc(typeFullpath);
     PyDict_DelItemString(cortopy_typesCache, typeFullpath);
 errorSetCacheNone:
-    Py_DECREF(Py_None);
+    corto_dealloc(typeFullpath);
 errorStrdup:
     return NULL;
 }
