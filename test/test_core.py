@@ -98,9 +98,8 @@ struct PointB::
     assert Point1 == Point2
 
 
-# @pytest.mark.xfail
-# def test_eval_expr():
-#     cortopy.eval("3 + 4")
+def test_eval_expr():
+    cortopy.eval("3 + 4")
 
 
 def test_declare_child_int8_string(name):
@@ -204,8 +203,53 @@ def test_line_type_error(Line, name):
     with pytest.raises(TypeError):
         line.b = "b"
 
+
 def test_line_setval(Line, Point3d, name):
     line = cortopy.declare_child(None, name, Line)
-    point = cortopy.declare_child(None, name + "_", Point3d)
+    point = cortopy.declare_child(None, name + "_1", Point3d)
     line.a = point
     assert line.a == point
+
+
+def test_line_setval_subtype(Line, Point4d, name):
+    line = cortopy.declare_child(None, name, Line)
+    point = cortopy.declare_child(None, name + "_1", Point4d)
+    line.a = point
+    assert line.a == point
+
+
+def test_update(name):
+    o = cortopy.declare_child(None, name, "int8")
+    o.begin_update()
+    o.end_update()
+
+
+def test_update_cancel(name):
+    o = cortopy.declare_child(None, name, "int8")
+    o.begin_update()
+    o.cancel_update()
+
+
+def test_update_cycle(name):
+    o = cortopy.declare_child(None, name, "int8")
+    o.begin_update()
+    o.cancel_update()
+    o.begin_update()
+    o.end_update()
+
+
+def test_resolve_int8(name):
+    cortopy.eval("int8 {}: 99".format(name))
+    o = cortopy.resolve(name)
+    assert o.val == 99
+
+def test_update_resolve_int8(name):
+    o = cortopy.declare_child(None, name, "int8")
+    o2 = cortopy.resolve(name)
+    assert o2.val == 0
+    o.begin_update()
+    o.val = 9
+    o.end_update()
+    o3 = cortopy.resolve(name)
+    assert o3.val == 9
+

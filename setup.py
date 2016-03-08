@@ -11,6 +11,7 @@ CORTO_HOME = '/usr/local' if HAS_CORTO_INSTALLATION else os.path.join(os.getenv(
 
 def get_corto_include_dirs():
     include_dirs = glob.glob(os.path.join(CORTO_HOME, 'include/corto/0.2/'))
+    include_dirs.append(os.path.join(CORTO_HOME, "python-binding/src/"))
     for include_dir in include_dirs:
         assert os.path.exists(include_dir), '"{}" doesn\'t exist'.format(include_dir)
     return include_dirs
