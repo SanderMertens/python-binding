@@ -3,9 +3,11 @@
 
 #include "corto/corto.h"
 
-#define CORTOPY_LASTERR_GOTO(errorLabel) do { PyErr_SetString(cortopy_CortoError, corto_lasterr()); goto errorLabel; } while(0)
+#include "cortopy.h"
+#include "cortopy_serialize.h"
+#include "cortopy_deserialize.h"
 
-static PyObject* cortopy_CortoError;
+PyObject* cortopy_CortoError;
 
 /*
  * Key: Full name of a Corto type
@@ -35,20 +37,11 @@ error:
     return NULL;
 }
 
-
-typedef struct {
-    PyObject_HEAD
-    const char* parent;
-    const char* name;
-    const char* type;
-    corto_object this;
-} cortopy_object;
-
 static PyTypeObject cortopy_objectType;
 
 
 static int
-cortopy_objectInitExt(cortopy_object* self, corto_object parent, corto_string name, corto_type type, corto_object* this_p);
+cortopy_objectInitExt(cortopy_object* self, corto_object parent, corto_string name, corto_type type, corto_bool define, corto_object* thisPtr);
 
 static int
 cortopy_objectInit(cortopy_object* self, PyObject* args, PyObject* kwargs);
@@ -56,11 +49,8 @@ cortopy_objectInit(cortopy_object* self, PyObject* args, PyObject* kwargs);
 static PyObject*
 cortopy_objectUpdate(cortopy_object* self, PyObject* args, PyObject* kwargs);
 
-static PyObject *
-cortopy_deserialize_primitive(corto_object cortoObj);
-
-static PyObject *
-cortopy_deserialize_void(corto_object cortoObj);
+// static PyObject *
+// cortopy_serPrimitive(corto_object cortoObj);
 
 static PyObject *
 cortopy_nameof(PyObject* self, PyObject* args);
@@ -84,13 +74,11 @@ static PyObject *
 cortopy_getType(PyObject* self, PyObject* args, PyObject* kwargs);
 
 static PyObject *
-cortopy_cortoToCortopyObject(corto_object o);
-
-static PyObject *
 cortopy_resolve(PyObject* self, PyObject* args);
 
 static PyObject *
 cortopy_setval(cortopy_object* self, PyObject* args, PyObject* kwargs);
+
 
 typedef struct cortopy_pyMemberType {
     int type;
@@ -104,107 +92,202 @@ cortopy_objectTypeMemberType(corto_type type);
  * Takes a cortopy.object, a type, or a str
  */
 static int
-cortopy_convertToObjectExt(PyObject* o, void* p, const char* msg)
+cortopy_convertToObjectExt(PyObject* object, void* address, const char* msg)
 {
     corto_object c = NULL;
     const char* name = NULL;
-    if (PyObject_IsInstance(o, (PyObject*)&cortopy_objectType)) {
-        c = ((cortopy_object*)o)->this;
+    if (object == NULL) {
+        /* Cleanup call */
+        /*
+         * TODO do we need to set address here to NULL?
+         * We cannot keep a cache of the original value (which *should* be NULL).
+         */
+         corto_release(*(corto_object*)address);
+         goto finish;
+    }
+    if (PyObject_IsInstance(object, (PyObject*)&cortopy_objectType)) {
+        c = ((cortopy_object*)object)->this;
         corto_claim(c);
-    } else if (PyType_Check(o) && PyType_IsSubtype((PyTypeObject*)o, &cortopy_objectType)) {
-        name = ((PyTypeObject*)o)->tp_name;
+    } else if (PyType_Check(object) && PyType_IsSubtype((PyTypeObject*)object, &cortopy_objectType)) {
+        name = ((PyTypeObject*)object)->tp_name;
         c = corto_resolve(NULL, (corto_string)name);
-    } else if (PyObject_IsInstance(o, (PyObject*)&PyUnicode_Type)) {
-        name = PyUnicode_AsUTF8(o);
+    } else if (PyObject_IsInstance(object, (PyObject*)&PyUnicode_Type)) {
+        name = PyUnicode_AsUTF8(object);
         c = corto_resolve(NULL, (corto_string)name);
     } else {
-        PyErr_Format(PyExc_TypeError, msg, Py_TYPE(o)->tp_name);
+        PyErr_Format(PyExc_TypeError, msg, Py_TYPE(object)->tp_name);
         goto error;
     }
     if (c == NULL) {
         PyErr_Format(PyExc_ValueError, "cannot find %s", name);
         goto error;
     }
-    *(corto_object*)p = c;
-    return 1;
+    *(corto_object*)address = c;
+finish:
+    return Py_CLEANUP_SUPPORTED;
 error:
     return 0;
 }
+
+
 /*
  * Gets a Corto object form a string or a Cortopy object.
  * Caller must release reference to the object.
- * p must corto_object*
+ * `address` must corto_object*
  */
 static int
-cortopy_convertToObject(PyObject* o, void* p)
+cortopy_convertToObject(PyObject* object, void* address)
 {
-    return cortopy_convertToObjectExt(o, p, "expected cortopy.Object or str, not '%s'");
+    return cortopy_convertToObjectExt(object, address, "expected cortopy.Object or str, not '%s'");
 }
 
 
+/*
+ * Gets a Corto object form a string or a Cortopy object.
+ * Caller must release reference to the object.
+ * `address` must corto_object*
+ */
 static int
-cortopy_convertToObjectOrRoot(PyObject* o, void* p)
+cortopy_convertToObjectOrRoot(PyObject* object, void* address)
 {
-    if (o == Py_None) {
+    if (object == Py_None) {
         corto_claim(root_o);
-        *(corto_object*)p = root_o;
+        *(corto_object*)address = root_o;
     } else {
-        int success = cortopy_convertToObjectExt(o, p, "expected cortopy.Object, str, or None, not %s");
+        int success = cortopy_convertToObjectExt(object, address, "expected cortopy.Object, str, or None, not %s");
         if (!success) {
             goto error;
         }
     }
-    return 1;
+    return Py_CLEANUP_SUPPORTED;
 error:
     return 0;
 }
 
 
+static int
+cortopy_objectInitExtValidateParams(
+    cortopy_object* self,
+    corto_object parent,
+    corto_string name,
+    corto_type type,
+    corto_bool define,
+    corto_object* thisPtr)
+{
+    CORTO_UNUSED(self);
+    CORTO_UNUSED(type);   
+    if (define && thisPtr == NULL) {
+        PyErr_SetString(PyExc_SystemError, "'thisPtr' must be non-NULL when define is TRUE");
+        goto error;
+    }
+    if (thisPtr) {
+        if (*thisPtr) {
+            if (parent || type) {
+                PyErr_Format(PyExc_SystemError, "only provide 'parent' and 'type' when *thisPtr is NULL (when no new Corto object should be declared)");
+                goto error;
+            }
+        } else {
+            if ((name && parent == NULL) || (name == NULL && parent)) {
+                PyErr_Format(PyExc_SystemError, "'name' and 'parent' must be both NULL or non-NULL when *thisPtr is NULL (when declaring new anonymous or scoped Corto object)");
+                goto error;
+            }
+        }
+    }
+    return 0;
+error:
+    return -1;
+}
+
+
 /*
- * If `this_p` is NULL, shall not declare a new object; if it is not NULL, then
- *     a new object shall be declared and assigned to location given by the pointer.
+ * TODO maybe we don't want the corto parent object because resolve will determine the parent.
+ * TODO Support the following use cases:
+ * - Do not declare any object in the store, "unbound" object (`thisPtr` is NULL)
+ * - Declare a bound object
+ *   - Declare a named object (`name` and `parent` not NULL)
+ *     - Define the object (define TRUE)
+ *     - Define the object (define FALSE)
+ *   - Declare anonymous object (`name` and `parent` are NULL)
+ *     - Define the object (define TRUE)
+ *     - Define the object (define FALSE)
+ * Note: if the object with name `name` already exists under `parent`, the object
+ * is not declared, but it is serialized (from Corto to Python).
+ */
+/*
+ * If `thisPtr` is NULL, shall not declare a new object;
+ * if it is not NULL, then
+ *     if *thisPtr is NULL
+ *         a new object shall be declared and assigned to location given by the pointer.
+ *     if *thisPtr is not NULL
+ *         the object is assumed to be in this location
  * Returns 0 on success, -1 on error.
  */
 static int
-cortopy_objectInitExt(cortopy_object* self, corto_object parent, corto_string name, corto_type type, corto_object* this_p)
+cortopy_objectInitExt(
+    cortopy_object* self,
+    corto_object parent,
+    corto_string name,
+    corto_type type,
+    corto_bool define,
+    corto_object* thisPtr)
 {
-    if (this_p) {
-        *this_p = corto_declareChild(parent, (corto_string)name, type);
-        if (*this_p == NULL) {
-            CORTOPY_LASTERR_GOTO(errorCreateChild);
+    if (cortopy_objectInitExtValidateParams(self, parent, name, type, define, thisPtr)) {
+        goto errorInvalidArguments;
+    }
+    if (thisPtr && *thisPtr) {
+        parent = corto_parentof(*thisPtr);
+        type = corto_typeof(*thisPtr);
+    }
+
+    corto_bool serialize = TRUE;
+    if (thisPtr) {
+        /* TODO release Corto object when Python object is garbage-collected */
+        *thisPtr = corto_lookup(parent, name);
+        if (*thisPtr == NULL) {
+            serialize = FALSE;
+            *thisPtr = corto_declareChild(parent, name, type);
+            if (*thisPtr == NULL) {
+                CORTOPY_LASTERR_GOTO(errorCreateChild);
+            }
         }
-        self->this = *this_p;
+        self->this = *thisPtr;
     } else {
         self->this = NULL;
     }
 
-    if ((self->name = corto_strdup(name)) == NULL) {
+    if (name && (self->name = corto_strdup(name)) == NULL) {
         CORTOPY_LASTERR_GOTO(errorDupName);
     }
-
-    if ((self->parent = corto_strdup(corto_fullpath(NULL, parent))) == NULL) {
+    if (parent && (self->parent = corto_strdup(corto_fullpath(NULL, parent))) == NULL) {
         CORTOPY_LASTERR_GOTO(errorDupParentName);
     }
-    corto_release(parent);
-    parent = NULL;
-
     if ((self->type = corto_strdup(corto_fullpath(NULL, type))) == NULL) {
         CORTOPY_LASTERR_GOTO(errorDupType);
     }
-    corto_release(type);
-    type = NULL;
-
+    if (serialize && cortopy_serialize(*thisPtr, self)) {
+        goto errorSerialize;
+    }
+    /* TODO Should we define regardless if the object was lookup'd or declared? */
+    if (define) {
+        if (corto_define(*thisPtr)) {
+            corto_release(*thisPtr);
+            *thisPtr = NULL;
+            CORTOPY_LASTERR_GOTO(errorDefine);
+        }
+    }
     return 0;
 
+errorDefine:
+errorSerialize:
 errorDupType:
     corto_dealloc((void*)self->parent);
+    self->parent = NULL;
 errorDupParentName:
     corto_dealloc((void*)self->name);
+    self->name = NULL;
 errorDupName:
 errorCreateChild:
-    if (parent) {
-        corto_release(parent);
-    }
+errorInvalidArguments:
     return -1;
 }
 
@@ -229,11 +312,21 @@ cortopy_objectInit(cortopy_object* self, PyObject* args, PyObject* kwargs)
         goto errorNeitherScopedNotAnonymous;
     }
 
-    corto_object this;
-    if (cortopy_objectInitExt(self, parent, name, type, &this)) {
+    corto_object this = NULL;
+    if (cortopy_objectInitExt(self, parent, name, type, FALSE, &this)) {
         goto errorInitExt;
     }
 
+    if (parent) {
+        corto_release(parent);
+        parent = NULL;
+    }
+    if (type) {
+        corto_release(type);
+        type = NULL;
+    }
+
+    /* TODO define only when needed */
     if (corto_define(this)) {
         CORTOPY_LASTERR_GOTO(errorDefine);
     }
@@ -274,14 +367,20 @@ error:
 static PyObject *
 cortopy_objectEndUpdate(cortopy_object* self)
 {
+    if (cortopy_objectDeser(self)) {
+        goto error;
+    }
     corto_updateEnd(self->this);
     Py_RETURN_NONE;
+error:
+    return NULL;
 }
 
 
 static PyObject *
 cortopy_objectUpdate(cortopy_object* self, PyObject* args, PyObject* kwargs)
 {
+
     if (corto_typeof(self->this)->kind == CORTO_VOID) {
         char* kwds[] = {NULL};
         if (!PyArg_ParseTupleAndKeywords(args, kwargs, "", kwds)) {
@@ -364,50 +463,6 @@ static PyTypeObject cortopy_objectType = {
 };
 
 
-static PyObject *
-cortopy_deserialize_primitive(corto_object cortoObj)
-{
-    corto_assert(corto_typeof(cortoObj)->kind != CORTO_PRIMITIVE, "expected corto primitive");
-
-    PyObject* pyObj = NULL;
-    switch (corto_primitive(corto_typeof(cortoObj))->kind) {
-    case CORTO_INTEGER:
-        // pyObj = cortopy_deserialize_integer(cortoObj);
-        break;
-    default:
-        PyErr_SetString(PyExc_RuntimeError, "primitive type not supported");
-        pyObj = NULL;
-        break;
-    }
-    return pyObj;
-}
-
-
-static PyObject *
-cortopy_deserialize_void(corto_object cortoObj)
-{
-    corto_assert(corto_typeof(cortoObj)->kind != CORTO_PRIMITIVE, "expected corto void");
-
-    PyObject* newargs = Py_BuildValue("(s s)", corto_fullpath(NULL, corto_parentof(cortoObj)), corto_nameof(cortoObj));
-    if (!newargs) {
-        goto errorNewArgs;
-    }
-    PyObject* pyObj = cortopy_objectType.tp_new(&cortopy_objectType, newargs, NULL);
-    if (pyObj == NULL) {
-        goto errorNew;
-    }
-    if (cortopy_objectType.tp_init(pyObj, newargs, NULL)) {
-        goto errorInit;
-    }
-    return pyObj;
-errorInit:
-    Py_DECREF(pyObj);
-errorNew:
-errorNewArgs:
-    return NULL;
-}
-
-
 /*
  * This function returns a new reference.
  */
@@ -432,6 +487,7 @@ cortopy_nameof(PyObject* self, PyObject* args)
 #define CORTOPY_DECLARE_CHILD_DOC \
 "Declares a scoped Corto object given the names of parent, the new object, and type."
 
+// TODO do not define object, add createChild method
 static PyObject *
 cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
 {
@@ -451,11 +507,6 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
         goto errorParseTupleAndKeywords;
     }
 
-    corto_object o = corto_declareChild(parent, name, type);
-    if (!o) {
-        CORTOPY_LASTERR_GOTO(errorDeclareChild);
-    }
-
     PyTypeObject* cpType = (PyTypeObject*)cortopy_tryBuildType(type);
     if (cpType == NULL) {
         goto errorTryBuildType;
@@ -464,23 +515,27 @@ cortopy_declareChild(PyObject* self, PyObject* args, PyObject* kwargs)
         goto errorTryBuildType;
     }
     PyObject* cpObj;
-    PyObject* newargs = Py_BuildValue("(s s s)", corto_fullpath(NULL, parent), name, corto_fullpath(NULL, type));
-    cpObj = cpType->tp_new(cpType, newargs, NULL);
+    // PyObject* newargs = Py_BuildValue("(s s s)", corto_fullpath(NULL, parent), name, corto_fullpath(NULL, type));
+    cpObj = cpType->tp_new(cpType, NULL, NULL);
     if (cpObj == NULL) {
         goto errorNew;
     }
-    if (cpType->tp_init(cpObj, newargs, NULL)) {
-        goto errorInit;
+    corto_object o = NULL;
+    // TODO do not define
+    if (cortopy_objectInitExt((cortopy_object*)cpObj, parent, name, type, TRUE, &o)) {
+        goto errorInitExt;
     }
-    Py_DECREF(newargs);
+    // if (cpType->tp_init(cpObj, newargs, NULL)) {
+    //     goto errorInit;
+    // }
+    // Py_DECREF(newargs);
 
     corto_release(type);
     corto_release(parent);
     return cpObj;
-errorInit:
+errorInitExt:
 errorNew:
 errorTryBuildType:
-errorDeclareChild:
     corto_release(type);
     corto_release(parent);
 errorParseTupleAndKeywords:
@@ -624,7 +679,6 @@ cortopy_setvalSerializeObject(corto_serializer serializer, corto_value* value, v
 error:
     return -1;
 }
-
 
 
 static struct corto_serializer_s
@@ -819,6 +873,7 @@ cortopy_sizeForTypeSerializer(
     return s;
 }
 
+
 static size_t
 cortopy_sizeForType(corto_type type)
 {
@@ -881,6 +936,7 @@ cortopy_memberCountSerializerCount(corto_serializer serializer, corto_value* val
     return 0;
 }
 
+
 static struct corto_serializer_s
 cortopy_memberCountSerializer(
     corto_modifier access,
@@ -902,6 +958,7 @@ cortopy_memberCountSerializer(
 
     return s;
 }
+
 
 typedef struct cortopy_memberDefSerializerData {
     PyMemberDef* memberDefs;
@@ -1007,6 +1064,7 @@ cortopy_memberDefMember(corto_serializer serializer, corto_value* value, void* d
 error:
     return -1;
 }
+
 
 /*
  * Serializer that creates PyMemberDef and PyGetSetDef instances for a class
@@ -1244,46 +1302,37 @@ error:
 
 
 static PyObject *
-cortopy_cortoToCortopyObject(corto_object o)
-{
-    PyObject* pyo = NULL;
-    switch (corto_typeof(o)->kind) {
-    case CORTO_PRIMITIVE:
-        pyo = cortopy_deserialize_primitive(o);
-        break;
-    case CORTO_VOID:
-        pyo = cortopy_deserialize_void(o);
-        break;
-    default:
-        PyErr_Format(PyExc_RuntimeError, "corto type %s not supported yet", corto_nameof(corto_typeof(o)));
-        goto error_typeNotSupported;
-    }
-    return pyo;
-error_typeNotSupported:
-    return NULL;
-}
-
-
-static PyObject *
 cortopy_resolve(PyObject* self, PyObject* args)
 {
-    const char* name;
+    corto_string name;
     if (!PyArg_ParseTuple(args, "s", &name)) {
-        return NULL;
+        goto errorParseTuple;
     }
-    corto_object cortoObj = corto_resolve(NULL, (corto_string)name);
+    corto_object cortoObj = corto_resolve(NULL, name);
     if (!cortoObj) {
         PyErr_Format(PyExc_ValueError, "could not find %s", name);
-        return NULL;
+        goto errorResolve;
     }
-    PyObject* cortopyType = cortopy_tryBuildType(corto_typeof(cortoObj));
+    PyObject* cortopyType_o = cortopy_tryBuildType(corto_typeof(cortoObj));
+    if (cortopyType_o == NULL) {
+        goto errorTryBuildType;
+    }
+    PyTypeObject* cortopyType = (PyTypeObject*)cortopyType_o;
+    PyObject* cortopyObj = cortopyType->tp_new(cortopyType, NULL, NULL);
     if (cortopyType == NULL) {
-        goto error;
+        goto errorNew;
+    }
+    if (cortopy_objectInitExt((cortopy_object*)cortopyObj, NULL, name, NULL, FALSE, &cortoObj)) {
+        goto errorInitExt;
     }
 
-    PyObject* pyObj = cortopy_cortoToCortopyObject(cortoObj);
-    return pyObj;
-error:
+    return cortopyObj;
+errorInitExt:
+errorNew:
+errorTryBuildType:
+    corto_release(cortoObj);
+errorResolve:
+errorParseTuple:
     return NULL;
 }
 

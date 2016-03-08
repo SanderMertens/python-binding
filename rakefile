@@ -29,8 +29,22 @@ end
 
 task :build do
   check_python_version_supported?
+  sh 'rm -rf "$HOME/.corto/python-binding/src/"'
+  sh 'mkdir -p "$HOME/.corto/python-binding/src/"'
+  sh 'cp src/*.h "$HOME/.corto/python-binding/src/"'
+
   sh "python setup.py build"
   sh "python setup.py sdist"
+end
+
+task :rebuild do
+  sh "rm -rf build"
+  sh "rm -rf dist"
+  Rake::Task["build"].invoke
+end
+
+task :install do
+  check_python_version_supported?
   begin
     sh "pip uninstall --yes cortopy"
   rescue
@@ -39,6 +53,7 @@ task :build do
 end
 
 task :test do
+  check_python_version_supported?
   sh "py.test -vvv test/"
 end
 
@@ -53,5 +68,6 @@ end
 
 task :default do
   Rake::Task["build"].invoke
+  Rake::Task["install"].invoke
   Rake::Task["test"].invoke
 end
