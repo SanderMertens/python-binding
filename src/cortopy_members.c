@@ -50,7 +50,7 @@ cortopy_objectTypeMemberType(corto_type type)
 size_t
 cortopy_objectMemberSize(corto_type type)
 {
-    size_t size;
+    size_t size = sizeof(PyObject*);
     switch (type->kind) {
     case CORTO_PRIMITIVE:
         switch (corto_primitive(type)->kind) {
@@ -59,7 +59,6 @@ cortopy_objectMemberSize(corto_type type)
             size = type->size;
             break;
         default:
-            size = sizeof(PyObject*);
             break;
         }
     default:
