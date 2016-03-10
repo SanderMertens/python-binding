@@ -1,10 +1,68 @@
+#include "cortopy_members.h"
 #include "cortopy_serialize.h"
+#include "cortopy_objectInitExt.h"
 
 
 typedef struct cortopy_serData {
-    cortopy_object* pyObj;
-    void* dest;
+    cortopy_object* topLevelObject;
+    corto_bool isTopLevel;
+    void* dest; /* location within the PyObject */
 } cortopy_serData;
+
+
+static corto_int16
+cortopy_serComposite(corto_serializer serializer, corto_value* value, void* data)
+{
+    /*
+     * For structs, create an instance bound to a Corto object.
+     * For classes, create an instance not bound to a Corto object.
+     * The top level object doesn't need to create an instance.
+     */
+    cortopy_serData* _data = data;
+    cortopy_serData newData = *_data; 
+    cortopy_object* object;
+    if (_data->isTopLevel) {
+        object = _data->topLevelObject;
+    } else {
+        /* TODO it is awkward to make a top-level check here */
+        _data->isTopLevel = TRUE;
+        corto_type type = corto_valueType(value);
+        if (type->reference) {
+            PyErr_Format(PyExc_TypeError, "serializing Corto reference type to "
+                "Python type not yet supported (%s)", corto_fullpath(NULL, type));
+            goto error;
+        }
+        PyTypeObject* pyType = (PyTypeObject*)cortopy_tryBuildType(type);
+        CORTOPY_IF_NULL_GOTO(pyType, error);
+        object = (cortopy_object*)pyType->tp_new(pyType, NULL, NULL);
+        if (cortopy_objectInitUnbound(object, type)) {
+            goto error;
+        }
+        newData.dest = CORTO_OFFSET(object, sizeof(cortopy_object));
+    }
+    if (corto_serializeMembers(serializer, value, &newData)) {
+        goto error;
+    }
+    return 0;
+error:
+    return -1;
+}
+
+
+static corto_int16
+cortopy_serMember(corto_serializer serializer, corto_value* value, void* data)
+{
+    cortopy_serData* _data = data;
+    corto_type type = corto_valueType(value);
+    if (corto_serializeValue(serializer, value, _data)) {
+        goto error;
+    }
+    size_t size = cortopy_objectMemberSize(type);
+    _data->dest = CORTO_OFFSET(_data->dest, size);
+    return 0;
+error:
+    return -1;
+}
 
 
 static corto_int16
@@ -33,7 +91,7 @@ cortopy_serObject(corto_serializer serializer, corto_value* value, void* data)
 {
     CORTO_UNUSED(serializer);
     cortopy_serData* _data = data;
-    _data->dest = CORTO_OFFSET(_data->pyObj, sizeof(cortopy_object));
+    _data->dest = CORTO_OFFSET(_data->topLevelObject, sizeof(cortopy_object));
     if (corto_serializeValue(serializer, value, data)) {
         goto error;
     }
@@ -56,10 +114,10 @@ cortopy_serializer(
     s.traceKind = trace;
     s.reference = NULL;
     s.program[CORTO_PRIMITIVE] = cortopy_serPrimitive;
-    // s.program[CORTO_COMPOSITE] = NULL;
+    s.program[CORTO_COMPOSITE] = cortopy_serComposite;
     // s.program[CORTO_COLLECTION] = NULL;
     // s.metaprogram[CORTO_ELEMENT] = NULL;
-    // s.metaprogram[CORTO_MEMBER] = NULL;
+    s.metaprogram[CORTO_MEMBER] = cortopy_serMember;
     s.metaprogram[CORTO_OBJECT] = cortopy_serObject;
     return s;
 }
@@ -71,7 +129,7 @@ cortopy_serialize(corto_object src, cortopy_object* dest)
     struct corto_serializer_s serializer = cortopy_serializer(
         CORTO_PRIVATE, CORTO_NOT, CORTO_SERIALIZER_TRACE_NEVER
     );
-    cortopy_serData data = {dest, NULL};
+    cortopy_serData data = {dest, TRUE, NULL};
     if (corto_serialize(&serializer, src, &data)) {
         CORTOPY_LASTERR_GOTO(error);
     }
