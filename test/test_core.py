@@ -243,6 +243,13 @@ def test_resolve_int8(name):
     o = cortopy.resolve(name)
     assert o.val == 99
 
+
+def test_resolve_point3d(name):
+    cortopy.eval("Point3d {}: 1, 10, 100".format(name))
+    o = cortopy.resolve(name)
+    assert (o.x, o.y, o.z) == (1, 10, 100)
+
+
 def test_update_resolve_int8(name):
     o = cortopy.declare_child(None, name, "int8")
     o2 = cortopy.resolve(name)
@@ -253,3 +260,14 @@ def test_update_resolve_int8(name):
     o3 = cortopy.resolve(name)
     assert o3.val == 9
 
+
+@pytest.mark.xfail
+def test_update_resolve_point3d(Point3d, name):
+    o = cortopy.declare_child(None, name, Point3d)
+    o.begin_update()
+    o.x = 3
+    o.y = 4
+    o.z = 5
+    o.end_update()
+    o2 = cortopy.resolve(name)
+    assert (o2.x, o2.y, o2.z) == (3, 4, 5)

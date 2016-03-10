@@ -4,10 +4,14 @@
 #include "corto/corto.h"
 
 #include "cortopy.h"
-#include "cortopy_serialize.h"
 #include "cortopy_deserialize.h"
+#include "cortopy_members.h"
+#include "cortopy_objectInitExt.h"
+#include "cortopy_serialize.h"
+
 
 PyObject* cortopy_CortoError;
+
 
 /*
  * Key: Full name of a Corto type
@@ -41,9 +45,6 @@ static PyTypeObject cortopy_objectType;
 
 
 static int
-cortopy_objectInitExt(cortopy_object* self, corto_object parent, corto_string name, corto_type type, corto_bool define, corto_object* thisPtr);
-
-static int
 cortopy_objectInit(cortopy_object* self, PyObject* args, PyObject* kwargs);
 
 static PyObject*
@@ -64,9 +65,6 @@ cortopy_define(PyObject* module, cortopy_object* o);
 static PyObject *
 cortopy_cortostr(PyObject* module, cortopy_object* o);
 
-static PyObject *
-cortopy_tryBuildType(corto_type type);
-
 static PyTypeObject *
 cortopy_buildType(corto_type type);
 
@@ -79,14 +77,6 @@ cortopy_resolve(PyObject* self, PyObject* args);
 static PyObject *
 cortopy_setval(cortopy_object* self, PyObject* args, PyObject* kwargs);
 
-
-typedef struct cortopy_pyMemberType {
-    int type;
-    size_t size;
-} cortopy_pyMemberType;
-
-static cortopy_pyMemberType
-cortopy_objectTypeMemberType(corto_type type);
 
 /*
  * Takes a cortopy.object, a type, or a str
@@ -162,133 +152,6 @@ cortopy_convertToObjectOrRoot(PyObject* object, void* address)
     return Py_CLEANUP_SUPPORTED;
 error:
     return 0;
-}
-
-
-static int
-cortopy_objectInitExtValidateParams(
-    cortopy_object* self,
-    corto_object parent,
-    corto_string name,
-    corto_type type,
-    corto_bool define,
-    corto_object* thisPtr)
-{
-    CORTO_UNUSED(self);
-    CORTO_UNUSED(type);   
-    if (define && thisPtr == NULL) {
-        PyErr_SetString(PyExc_SystemError, "'thisPtr' must be non-NULL when define is TRUE");
-        goto error;
-    }
-    if (thisPtr) {
-        if (*thisPtr) {
-            if (parent || type) {
-                PyErr_Format(PyExc_SystemError, "only provide 'parent' and 'type' when *thisPtr is NULL (when no new Corto object should be declared)");
-                goto error;
-            }
-        } else {
-            if ((name && parent == NULL) || (name == NULL && parent)) {
-                PyErr_Format(PyExc_SystemError, "'name' and 'parent' must be both NULL or non-NULL when *thisPtr is NULL (when declaring new anonymous or scoped Corto object)");
-                goto error;
-            }
-        }
-    }
-    return 0;
-error:
-    return -1;
-}
-
-
-/*
- * TODO maybe we don't want the corto parent object because resolve will determine the parent.
- * TODO Support the following use cases:
- * - Do not declare any object in the store, "unbound" object (`thisPtr` is NULL)
- * - Declare a bound object
- *   - Declare a named object (`name` and `parent` not NULL)
- *     - Define the object (define TRUE)
- *     - Define the object (define FALSE)
- *   - Declare anonymous object (`name` and `parent` are NULL)
- *     - Define the object (define TRUE)
- *     - Define the object (define FALSE)
- * Note: if the object with name `name` already exists under `parent`, the object
- * is not declared, but it is serialized (from Corto to Python).
- */
-/*
- * If `thisPtr` is NULL, shall not declare a new object;
- * if it is not NULL, then
- *     if *thisPtr is NULL
- *         a new object shall be declared and assigned to location given by the pointer.
- *     if *thisPtr is not NULL
- *         the object is assumed to be in this location
- * Returns 0 on success, -1 on error.
- */
-static int
-cortopy_objectInitExt(
-    cortopy_object* self,
-    corto_object parent,
-    corto_string name,
-    corto_type type,
-    corto_bool define,
-    corto_object* thisPtr)
-{
-    if (cortopy_objectInitExtValidateParams(self, parent, name, type, define, thisPtr)) {
-        goto errorInvalidArguments;
-    }
-    if (thisPtr && *thisPtr) {
-        parent = corto_parentof(*thisPtr);
-        type = corto_typeof(*thisPtr);
-    }
-
-    corto_bool serialize = TRUE;
-    if (thisPtr) {
-        /* TODO release Corto object when Python object is garbage-collected */
-        *thisPtr = corto_lookup(parent, name);
-        if (*thisPtr == NULL) {
-            serialize = FALSE;
-            *thisPtr = corto_declareChild(parent, name, type);
-            if (*thisPtr == NULL) {
-                CORTOPY_LASTERR_GOTO(errorCreateChild);
-            }
-        }
-        self->this = *thisPtr;
-    } else {
-        self->this = NULL;
-    }
-
-    if (name && (self->name = corto_strdup(name)) == NULL) {
-        CORTOPY_LASTERR_GOTO(errorDupName);
-    }
-    if (parent && (self->parent = corto_strdup(corto_fullpath(NULL, parent))) == NULL) {
-        CORTOPY_LASTERR_GOTO(errorDupParentName);
-    }
-    if ((self->type = corto_strdup(corto_fullpath(NULL, type))) == NULL) {
-        CORTOPY_LASTERR_GOTO(errorDupType);
-    }
-    if (serialize && cortopy_serialize(*thisPtr, self)) {
-        goto errorSerialize;
-    }
-    /* TODO Should we define regardless if the object was lookup'd or declared? */
-    if (define) {
-        if (corto_define(*thisPtr)) {
-            corto_release(*thisPtr);
-            *thisPtr = NULL;
-            CORTOPY_LASTERR_GOTO(errorDefine);
-        }
-    }
-    return 0;
-
-errorDefine:
-errorSerialize:
-errorDupType:
-    corto_dealloc((void*)self->parent);
-    self->parent = NULL;
-errorDupParentName:
-    corto_dealloc((void*)self->name);
-    self->name = NULL;
-errorDupName:
-errorCreateChild:
-errorInvalidArguments:
-    return -1;
 }
 
 
@@ -795,51 +658,6 @@ cortopy_typeSerializer(
 }
 
 
-static cortopy_pyMemberType
-cortopy_objectTypeMemberType(corto_type type)
-{
-    size_t size = sizeof(PyObject*);
-    int mtype = T_OBJECT;
-    switch (type->kind) {
-    case CORTO_PRIMITIVE:
-        switch (corto_primitive(type)->kind) {
-        case CORTO_INTEGER:
-            if (type->size == sizeof(char)) {
-                mtype = T_BYTE;
-                size = sizeof(char);
-                break;
-            } else if (type->size == sizeof(short)) {
-                mtype = T_SHORT;
-                size = sizeof(short);
-                break;
-            } else if (type->size == sizeof(int)) {
-                mtype = T_INT;
-                size = sizeof(int);
-                break;
-            } else if (type->size == sizeof(long)) {
-                mtype = T_LONG;
-                size = sizeof(long);
-                break;
-            } else if (type->size == sizeof(long long)) {
-                mtype = T_LONGLONG;
-                size = sizeof(long long);
-                break;
-            }
-            break;
-        case CORTO_UINTEGER:
-            mtype = T_ULONGLONG;
-            size = sizeof(corto_uint64);
-            break;
-        default:
-            break;
-        }
-    default:
-        break;
-    }
-    return (struct cortopy_pyMemberType){mtype, size};
-}
-
-
 static corto_int16
 cortopy_sizeForTypeSerializerMember(corto_serializer serializer, corto_value* value, void* data)
 {
@@ -1231,7 +1049,7 @@ error:
  * This function returns a new reference. I think.
  * Returns None when the type hasn't finished serializing.
  */
-static PyObject *
+PyObject *
 cortopy_tryBuildType(corto_type type)
 {
     corto_string typeFullpath = corto_strdup(corto_fullpath(NULL, type));
