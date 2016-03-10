@@ -59,10 +59,10 @@ end
 
 task :env do
   {"env34" => "python3.4", "env35" => "python3.5"}.each do |env, python|
-    sh "rm -rf #{env}"
-    sh "#{python} -m venv #{env}"
-    sh "./#{env}/bin/pip install --upgrade pip"
-    sh "./#{env}/bin/pip install -r requirements-dev.txt"
+    sh "rm -rf .#{env}"
+    sh "#{python} -m venv .#{env}"
+    sh "./.#{env}/bin/pip install --upgrade pip"
+    sh "./.#{env}/bin/pip install -r requirements-dev.txt"
   end
 end
 
