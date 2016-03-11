@@ -803,6 +803,7 @@ cortopy_compositeGetter(PyObject* self, void* closure)
         PyErr_Format(PyExc_ValueError, "could not retrieve value from member %s", _closure->name);
         goto error;
     }
+    Py_INCREF(*value);
     return *value;
 error:
     return NULL;

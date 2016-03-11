@@ -46,14 +46,26 @@ struct Point4d: Point3d::
 
 
 @pytest.fixture(scope="module")
-def Line(Point3d):
+def Line3d(Point3d):
     cortopy.eval(
 """
-struct Line::
+struct Line3d::
     a, b: Point3d
 """
     )
-    t = cortopy.gettype("Line")
+    t = cortopy.gettype("Line3d")
+    return t
+
+
+@pytest.fixture(scope="module")
+def Line4d(Point3d):
+    cortopy.eval(
+"""
+struct Line4d::
+    a, b: Point4d
+"""
+    )
+    t = cortopy.gettype("Line4d")
     return t
 
 
@@ -196,23 +208,23 @@ def test_update(name):
     assert o.val == 3
 
 
-def test_line_type_error(Line, name):
-    line = cortopy.declare_child(None, name, Line)
+def test_line_type_error(Line3d, name):
+    line = cortopy.declare_child(None, name, Line3d)
     with pytest.raises(TypeError):
         line.a = 1
     with pytest.raises(TypeError):
         line.b = "b"
 
 
-def test_line_setval(Line, Point3d, name):
-    line = cortopy.declare_child(None, name, Line)
+def test_line_setval(Line3d, Point3d, name):
+    line = cortopy.declare_child(None, name, Line3d)
     point = cortopy.declare_child(None, name + "_1", Point3d)
     line.a = point
     assert line.a == point
 
 
-def test_line_setval_subtype(Line, Point4d, name):
-    line = cortopy.declare_child(None, name, Line)
+def test_line_setval_subtype(Line3d, Point4d, name):
+    line = cortopy.declare_child(None, name, Line3d)
     point = cortopy.declare_child(None, name + "_1", Point4d)
     line.a = point
     assert line.a == point
@@ -247,7 +259,33 @@ def test_resolve_int8(name):
 def test_resolve_point3d(name):
     cortopy.eval("Point3d {}: 1, 10, 100".format(name))
     o = cortopy.resolve(name)
+    assert type(o) == cortopy.types['/Point3d']
     assert (o.x, o.y, o.z) == (1, 10, 100)
+
+
+def test_resolve_point4d(Point4d, name):
+    cortopy.eval("Point4d {}: 5, 10, 15, 20".format(name))
+    o = cortopy.resolve(name)
+    assert type(o) == cortopy.types['/Point4d']
+    assert (o.w, o.x, o.y, o.z) == (20, 5, 10, 15)
+
+
+def test_resolve_line3d(Line3d, name):
+    cortopy.eval("Line3d {}: {{1, 2, 3}}, {{6, 7, 8}}".format(name))
+    o = cortopy.resolve(name)
+    assert type(o.a) == cortopy.types['/Point3d']
+    assert type(o.b) == cortopy.types['/Point3d']
+    assert (o.a.x, o.a.y, o.a.z) == (1, 2, 3)
+    assert (o.b.x, o.b.y, o.b.z) == (6, 7, 8)
+
+
+def test_resolve_line4d(Line4d, name):
+    cortopy.eval("Line4d {}: {{1, 2, 3, 4}}, {{6, 7, 8, 9}}".format(name))
+    o = cortopy.resolve(name)
+    assert type(o.a) == cortopy.types['/Point4d']
+    assert type(o.b) == cortopy.types['/Point4d']
+    assert (o.a.w, o.a.x, o.a.y, o.a.z) == (4, 1, 2, 3)
+    assert (o.b.w, o.b.x, o.b.y, o.b.z) == (9, 6, 7, 8)
 
 
 def test_update_resolve_int8(name):
