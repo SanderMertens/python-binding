@@ -170,7 +170,7 @@ def test_int_setval_value_error(name, type_, value):
 
 def test_int8_mro(name):
     int8 = cortopy.gettype("int8")
-    assert int8.__mro__ == (cortopy.types["/corto/lang/int8"], cortopy.object, object)
+    assert int8.__mro__ == (cortopy.types["int8"], cortopy.object, object)
 
 
 def test_declare_point3d(name, Point3d):
