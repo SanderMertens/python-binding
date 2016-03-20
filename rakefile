@@ -45,11 +45,7 @@ end
 
 task :install do
   check_python_version_supported?
-  begin
-    sh "pip uninstall --yes cortopy"
-  rescue
-  end
-  sh "pip install dist/cortopy-#{PythonBindingVersion}.tar.gz"
+  sh "python setup.py install"
 end
 
 task :test do
@@ -64,6 +60,12 @@ task :env do
     sh "./.#{env}/bin/pip install --upgrade pip"
     sh "./.#{env}/bin/pip install -r requirements-dev.txt"
   end
+end
+
+# This removes files from `python setup.py install`.
+task :uninstall do
+  sh "python setup.py install --record .python-binding-installed-files.txt"
+  sh "cat .python-binding-installed-files.txt | xargs rm -rf"
 end
 
 task :default do

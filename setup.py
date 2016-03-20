@@ -11,7 +11,6 @@ CORTO_HOME = '/usr/local' if HAS_CORTO_INSTALLATION else os.path.join(os.getenv(
 
 def get_corto_include_dirs():
     include_dirs = glob.glob(os.path.join(CORTO_HOME, 'include/corto/0.2/'))
-    include_dirs.append(os.path.join(CORTO_HOME, "python-binding/src/"))
     for include_dir in include_dirs:
         assert os.path.exists(include_dir), '"{}" doesn\'t exist'.format(include_dir)
     return include_dirs
@@ -47,6 +46,14 @@ def get_runtime_library_dirs():
     return get_corto_library_dirs()
 
 
+def get_data_files():
+    data_files = [
+        ('include', glob.glob("src/*.h")),
+    ]
+    return []
+    return data_files
+
+
 corto_module = Extension(
     'cortopy',
     include_dirs=get_corto_include_dirs(),
@@ -61,6 +68,7 @@ setup(
     name='cortopy',
     version="0.1.0",
     ext_modules=[corto_module],
+    data_files=get_data_files(),
     author='Johnny Lee',
     author_email='jleeothon@gmail.com',
     license='MIT',
