@@ -1,4 +1,5 @@
 #include "cortopy_objectInitExt.h"
+#include "cortopy_serialize.h"
 
 
 static int
@@ -51,8 +52,7 @@ cortopy_objectInitExt(
         parent = corto_parentof(*thisPtr);
         type = corto_typeof(*thisPtr);
     }
-
-    corto_bool serialize = TRUE;
+    corto_bool serialize = thisPtr ? TRUE : FALSE;
     if (thisPtr) {
         /* TODO release Corto object when Python object is garbage-collected */
         *thisPtr = corto_lookup(parent, name);
