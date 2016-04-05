@@ -719,7 +719,7 @@ cortopy_buildMemberDefPrimitive(PyTypeObject* cpType, corto_type cType)
         PyErr_NoMemory();
         goto error;
     }
-    memberDefs[0] = (PyMemberDef){"val", memberType.type, sizeof(cortopy_object), 0, NULL};
+    memberDefs[0] = (PyMemberDef){"value", memberType.type, sizeof(cortopy_object), 0, NULL};
     memberDefs[1] = (PyMemberDef){0};
     cpType->tp_members = memberDefs;
     return 0;

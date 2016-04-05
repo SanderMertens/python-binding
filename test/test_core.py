@@ -146,7 +146,7 @@ def test_int8_type_and_superclass(name):
 def test_int_setval(name, type_, value):
     o = cortopy.declare_child(None, name, type_)
     o.setval(value)
-    assert o.val == value
+    assert o.value == value
 
 
 @pytest.mark.parametrize(
@@ -205,7 +205,7 @@ def test_setval_point4d(name, Point4d):
 def test_update(name):
     o = cortopy.declare_child(None, name, "int8")
     o.update(3)
-    assert o.val == 3
+    assert o.value == 3
 
 
 def test_line_type_error(Line3d, name):
@@ -253,10 +253,10 @@ def test_update_cycle(name):
 def test_resolve_int8(name):
     cortopy.eval("int8 {}: 99".format(name))
     o = cortopy.resolve(name)
-    assert o.val == 99
+    assert o.value == 99
 
 
-def test_resolve_point3d(name):
+def test_resolve_point3d(Point3d, name):
     cortopy.eval("Point3d {}: 1, 10, 100".format(name))
     o = cortopy.resolve(name)
     assert type(o) == cortopy.types['/Point3d']
@@ -291,12 +291,12 @@ def test_resolve_line4d(Line4d, name):
 def test_update_resolve_int8(name):
     o = cortopy.declare_child(None, name, "int8")
     o2 = cortopy.resolve(name)
-    assert o2.val == 0
+    assert o2.value == 0
     o.begin_update()
-    o.val = 9
+    o.value = 9
     o.end_update()
     o3 = cortopy.resolve(name)
-    assert o3.val == 9
+    assert o3.value == 9
 
 
 @pytest.mark.xfail
